@@ -156,6 +156,8 @@ Class remapping is configured in `config.py` via `CLASS_REMAP` dict and applied 
 - `nms.class_aware_nms(boxes, scores, class_ids, iou_threshold, class_agnostic)` - NMS with optional class-agnostic mode
 - `nms.non_max_merge(boxes, scores, class_ids, iou_threshold)` - NMM: combines overlapping boxes instead of discarding
 - `camera.flush_buffer()` - Discards old camera frames to ensure fresh capture
+- `Positioning.calculate_positions_from_detections(detections, ...)` - Calculates shelf positions directly from Detections object (used by --web/--mqtt)
+- `Positioning.calculate_positions(detection_file, ...)` - Calculates shelf positions from label file (legacy)
 
 ### Verbose Mode (--verbose)
 Saves SAHI tile images to `verbose_tiles/` directory for debugging:
