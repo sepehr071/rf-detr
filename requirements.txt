@@ -1,0 +1,9 @@
+rfdetr
+opencv-python
+supervision
+numpy
+boxmot
+
+# Optional: OpenVINO optimization for Intel CPU
+# openvino
+# openvino-dev
