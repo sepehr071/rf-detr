@@ -41,6 +41,7 @@ from config import (
     CAMERA_WIDTH,
     CAMERA_HEIGHT
 )
+from utils.id_helper import add_bbox_ids_to_detections
 
 
 def save_detections_to_txt(
@@ -380,6 +381,9 @@ def run_detection_loop(
             t0 = time.time()
             if scaled_roi and scaled_roi.is_complete():
                 detections = scaled_roi.filter_detections(detections)
+            
+            detections = add_bbox_ids_to_detections(detections)
+
             timings['filter'] = time.time() - t0
 
             # === SAVE LABELS AND RAW IMAGE (for debugging) ===
@@ -409,7 +413,7 @@ def run_detection_loop(
                     detections,
                     image_width=original_w,
                     image_height=original_h,
-                    enable_collision_resolution=False
+                    enable_collision_resolution=True
                 )
 
                 # Publish via MQTT if enabled
@@ -709,7 +713,7 @@ def run_image_inference(
             detections,
             image_width=original_w,
             image_height=original_h,
-            enable_collision_resolution=False
+            enable_collision_resolution=True
         )
 
         if positions:
