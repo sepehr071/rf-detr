@@ -1,30 +1,34 @@
 """
 RF-DETR Detection Main Application
 ==================================
-Main entry point for the bottle detection system.
+Entry point and orchestrator for the bottle detection system.
 
-Captures single images from camera, processes with RF-DETR model,
-and displays results continuously.
+This is the thin orchestrator that coordinates between specialized modules.
+All business logic has been extracted into dedicated modules:
+- pipeline.py: Core inference pipeline
+- utils/preprocessing.py: Frame preprocessing
+- utils/label_io.py: Label file serialization
+- utils/network_publish.py: MQTT and HTTP publishing
 
 Usage:
-    # Full frame mode (default)
+    # SAHI tiling mode (default, better for small objects)
     python main.py
-    
-    # SAHI tiling mode (better for small objects)
-    python main.py --mode sahi
-    
-    # Custom confidence threshold
-    python main.py --conf 0.4
-    
-    # With OpenVINO optimization
-    python main.py --openvino
-    
+
+    # Full frame mode
+    python main.py --mode full
+
+    # Hybrid mode (full + SAHI combined)
+    python main.py --mode hybrid
+
     # Process single image file
     python main.py --image path/to/image.jpg
-    
-    # Save detections to text file (class_id + polygon per line)
-    python main.py --save-labels
-    python main.py --image test.jpg --save-labels --labels-dir labels/
+
+    # With object tracking
+    python main.py --track
+
+    # Send data via MQTT/HTTP
+    python main.py --mqtt
+    python main.py --web
 """
 
 import os
@@ -32,256 +36,91 @@ import sys
 import time
 import argparse
 import cv2
-import numpy as np
 
 from config import (
     DEFAULT_CHECKPOINT,
     DEFAULT_CONFIDENCE,
     CAMERA_INDEX,
     CAMERA_WIDTH,
-    CAMERA_HEIGHT
+    CAMERA_HEIGHT,
+    VERBOSE_TILES_DIR,
+    LABELS_DIR,
+    IMAGES_DIR,
+    MQTT_LOGS_DIR,
+    POSITIONS_DIR,
+    CONFIDENCE_INCREMENT,
+    CONFIDENCE_MIN,
+    CONFIDENCE_MAX,
+    DISPLAY_KEY_WAIT_MS
 )
-from utils.id_helper import add_bbox_ids_to_detections
 
 
-def save_detections_to_txt(
-    detections,
-    output_path: str,
-    image_height: int,
-    image_width: int
-):
-    """
-    Save detections to a text file with class_id, polygon, and bounding box per line.
+def setup_directories(args) -> dict:
+    """Create required output directories and return paths."""
+    dirs = {}
 
-    Format: class_id poly_x1 poly_y1 ... | bbox_x1 bbox_y1 bbox_x2 bbox_y2 (normalized coordinates)
-    The pipe '|' separates polygon points from bounding box.
-    If mask is available, uses mask polygon. Otherwise uses bounding box corners as polygon.
-    
-    Args:
-        detections: supervision Detections object
-        output_path: Path to output .txt file
-        image_height: Image height for normalization
-        image_width: Image width for normalization
-    """
-    lines = []
-    
-    for i in range(len(detections)):
-        class_id = detections.class_id[i]
-        
-        # Try to get polygon from mask
-        if detections.mask is not None and detections.mask[i] is not None:
-            mask = detections.mask[i].astype(np.uint8)
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            if contours:
-                # Get the largest contour
-                largest_contour = max(contours, key=cv2.contourArea)
-                
-                # Simplify polygon if it has too many points
-                epsilon = 0.005 * cv2.arcLength(largest_contour, True)
-                simplified = cv2.approxPolyDP(largest_contour, epsilon, True)
-                
-                # Flatten and normalize coordinates
-                points = simplified.reshape(-1, 2)
-                normalized_points = []
-                for x, y in points:
-                    normalized_points.extend([x / image_width, y / image_height])
-                
-                # Format: class_id poly_x1 poly_y1 ... | bbox_x1 bbox_y1 bbox_x2 bbox_y2
-                coords_str = ' '.join(f"{p:.6f}" for p in normalized_points)
-                box = detections.xyxy[i]
-                bbox_str = f"{box[0]/image_width:.6f} {box[1]/image_height:.6f} {box[2]/image_width:.6f} {box[3]/image_height:.6f}"
-                lines.append(f"{class_id} {coords_str} | {bbox_str}")
-        else:
-            # Fall back to bounding box as polygon
-            box = detections.xyxy[i]
-            x1, y1, x2, y2 = box
-            
-            # Normalize coordinates
-            x1_n, x2_n = x1 / image_width, x2 / image_width
-            y1_n, y2_n = y1 / image_height, y2 / image_height
-            
-            # Box as polygon: 4 corners + bbox at end
-            lines.append(f"{class_id} {x1_n:.6f} {y1_n:.6f} {x2_n:.6f} {y1_n:.6f} {x2_n:.6f} {y2_n:.6f} {x1_n:.6f} {y2_n:.6f} | {x1_n:.6f} {y1_n:.6f} {x2_n:.6f} {y2_n:.6f}")
-    
-    # Write to file
-    with open(output_path, 'w') as f:
-        f.write('\n'.join(lines))
-    
-    return len(lines)
+    if args.verbose:
+        dirs['tiles'] = VERBOSE_TILES_DIR
+        os.makedirs(VERBOSE_TILES_DIR, exist_ok=True)
+
+    if args.save_labels:
+        dirs['labels'] = args.labels_dir
+        dirs['images'] = os.path.join(os.path.dirname(args.labels_dir) or ".", IMAGES_DIR)
+        os.makedirs(dirs['labels'], exist_ok=True)
+        os.makedirs(dirs['images'], exist_ok=True)
+
+    if args.positioning or args.web or args.mqtt:
+        dirs['positions'] = args.positioning_dir
+        os.makedirs(dirs['positions'], exist_ok=True)
+
+    if args.mqtt:
+        dirs['mqtt_logs'] = MQTT_LOGS_DIR
+        os.makedirs(MQTT_LOGS_DIR, exist_ok=True)
+
+    return dirs
 
 
-def format_mqtt_payload(
-    positions: list,
-    store_id: int = 1,
-    device_id: int = 1,
-    level: int = 4
-) -> dict:
-    """
-    Transform positioning data to MQTT payload format.
-
-    Args:
-        positions: List of position dictionaries from calculate_positions()
-        store_id: Store identifier (hardcoded)
-        device_id: Device identifier (hardcoded)
-        level: Shelf level (hardcoded)
-
-    Returns:
-        Dict with store_id, device_id, products, and other_products
-    """
-    products = []
-    other_products = []
-
-    for pos in positions:
-        if 'shelf_position' not in pos:
-            continue  # Skip error entries
-
-        item = {
-            "class_id": pos["class_id"],
-            "level": level,
-            "facing": pos.get("rotation", 0),
-            "position": {
-                "x": pos["shelf_position"][0],
-                "y": pos["shelf_position"][1]
-            }
-        }
-
-        if pos["class_id"] == -1:
-            other_products.append(item)
-        else:
-            products.append(item)
-
-    return {
-        "store_id": store_id,
-        "device_id": device_id,
-        "products": products,
-        "other_products": other_products
-    }
-
-
-def run_detection_loop(
-    checkpoint_path: str,
-    mode: str = "full",
-    confidence: float = DEFAULT_CONFIDENCE,
-    use_openvino: bool = False,
-    camera_index: int = CAMERA_INDEX,
-    save_labels: bool = False,
-    labels_dir: str = "labels",
-    log_timing: bool = False,
-    verbose: bool = False,
-    positioning: bool = False,
-    positioning_dir: str = "positions",
-    mqtt_enabled: bool = False,
-    web_enabled: bool = False,
-    track_enabled: bool = False,
-    nms_enabled: bool = False
-):
-    """
-    Main detection loop - captures images and processes continuously.
-
-    Args:
-        checkpoint_path: Path to model checkpoint
-        mode: Inference mode ('full', 'sahi', or 'hybrid')
-        confidence: Confidence threshold (0-1)
-        use_openvino: Whether to use OpenVINO optimization
-        camera_index: Camera device index
-        save_labels: Whether to save detection labels to text files (debug/logging)
-        labels_dir: Directory to save label files
-        log_timing: Whether to print timing breakdown for each frame
-        verbose: Whether to save SAHI tile images for debugging
-        positioning: Whether to calculate shelf positions (auto-enabled with --web or --mqtt)
-        positioning_dir: Directory to save positioning JSON files
-        mqtt_enabled: Whether to publish positioning data via MQTT
-        web_enabled: Whether to send positioning data via HTTP POST
-        track_enabled: Whether to enable object tracking with persistent IDs
-        nms_enabled: Whether to apply additional NMS after inference
-    """
-    from camera import ImageCapture
-    from model import DetectionModel, resize_for_inference, offset_detections
-    from roi import ROIManager
-    from visualization import Visualizer
-    from config import VERBOSE_TILES_DIR
-
-    # Auto-enable positioning when web or mqtt is enabled
-    if web_enabled or mqtt_enabled:
-        positioning = True
-
+def print_banner(args, has_roi: bool):
+    """Print startup configuration banner."""
     print("=" * 60)
     print("RF-DETR DETECTION SYSTEM")
     print("=" * 60)
-    print(f"Mode: {mode.upper()}")
-    print(f"Confidence: {confidence}")
-    print(f"OpenVINO: {'Yes' if use_openvino else 'No'}")
-    print(f"Camera: {camera_index} ({CAMERA_WIDTH}x{CAMERA_HEIGHT})")
-    print(f"Save Labels: {'Yes -> ' + labels_dir if save_labels else 'No'}")
-    print(f"Positioning: {'Yes' if positioning else 'No'}")
-    print(f"MQTT: {'Yes' if mqtt_enabled else 'No'}")
-    print(f"Web POST: {'Yes' if web_enabled else 'No'}")
-    print(f"Tracking: {'Yes (BoT-SORT)' if track_enabled else 'No'}")
-    print(f"NMS: {'Yes (threshold=0.45)' if nms_enabled else 'No'}")
-    print(f"Log Timing: {'Yes' if log_timing else 'No'}")
-    print(f"Verbose Tiles: {'Yes -> ' + VERBOSE_TILES_DIR if verbose else 'No'}")
+    print(f"Mode: {args.mode.upper()}")
+    print(f"Confidence: {args.conf}")
+    print(f"OpenVINO: {'Yes' if args.openvino else 'No'}")
+    if not args.image:
+        print(f"Camera: {args.camera} ({CAMERA_WIDTH}x{CAMERA_HEIGHT})")
+    else:
+        print(f"Image: {args.image}")
+    print(f"ROI: {'Loaded' if has_roi else 'Not configured'}")
+    print(f"Save Labels: {'Yes -> ' + args.labels_dir if args.save_labels else 'No'}")
+    print(f"Positioning: {'Yes' if args.positioning or args.web or args.mqtt else 'No'}")
+    print(f"MQTT: {'Yes' if args.mqtt else 'No'}")
+    print(f"Web POST: {'Yes' if args.web else 'No'}")
+    if not args.image:
+        print(f"Tracking: {'Yes (BoT-SORT)' if args.track else 'No'}")
+    print(f"NMS: {'Yes' if args.nms else 'No'}")
+    print(f"Verbose Tiles: {'Yes -> ' + VERBOSE_TILES_DIR if args.verbose else 'No'}")
     print("=" * 60)
 
-    # Create verbose tiles directory if needed
-    tiles_dir = None
-    if verbose:
-        tiles_dir = VERBOSE_TILES_DIR
-        os.makedirs(tiles_dir, exist_ok=True)
 
-    # Create labels and images directories if saving
-    if save_labels:
-        os.makedirs(labels_dir, exist_ok=True)
-        images_dir = os.path.join(os.path.dirname(labels_dir) or ".", "images")
-        os.makedirs(images_dir, exist_ok=True)
-        frame_counter = 0
+def run_detection_loop(args, pipeline, camera, visualizer, dirs):
+    """
+    Main camera detection loop - orchestration only.
 
-    # Create positioning directory if needed
-    if positioning:
-        os.makedirs(positioning_dir, exist_ok=True)
+    Args:
+        args: Parsed CLI arguments
+        pipeline: Configured InferencePipeline
+        camera: ImageCapture instance
+        visualizer: Visualizer instance
+        dirs: Dict of output directory paths
+    """
+    from utils.label_io import save_detections_to_txt
+    from utils.network_publish import configure_mqtt, publish_mqtt, publish_http
 
     # Configure MQTT if enabled
-    if mqtt_enabled:
-        import mqtt_handler
-        mqtt_handler.configure(
-            broker_host="89.36.137.77",
-            broker_port=1883,
-            default_topic="test/topic"
-        )
-        mqtt_logs_dir = "mqtt_logs"
-        os.makedirs(mqtt_logs_dir, exist_ok=True)
-
-    # Initialize ROI
-    roi = ROIManager()
-    has_roi = roi.load()
-    if not has_roi:
-        print("⚠️ No ROI configured. Run 'python calibrate.py' first.")
-        response = input("Continue without ROI? (y/n): ")
-        if response.lower() != 'y':
-            return
-        roi = None
-    
-    # Initialize model
-    print("\n📦 Loading model...")
-    model = DetectionModel(checkpoint_path, use_openvino)
-    
-    # Initialize camera
-    print("\n📷 Opening camera...")
-    camera = ImageCapture(camera_index, CAMERA_WIDTH, CAMERA_HEIGHT)
-    if not camera.open():
-        print("❌ Failed to open camera. Exiting.")
-        return
-    
-    # Initialize visualizer
-    visualizer = Visualizer()
-    visualizer.create_window(CAMERA_WIDTH, CAMERA_HEIGHT)
-
-    # Initialize tracker if enabled
-    tracker = None
-    if track_enabled:
-        from tracker import ObjectTracker
-        tracker = ObjectTracker()
-        print("\n🔗 Tracker initialized (BoT-SORT)")
+    if args.mqtt:
+        configure_mqtt()
 
     print("\n🎯 Starting detection loop...")
     print("   Press 'Q' to quit")
@@ -289,182 +128,75 @@ def run_detection_loop(
     print("   Press 'M' to toggle masks")
     print("   Press '+'/'-' to adjust confidence")
     print()
-    
+
     # State variables
     show_masks = True
     fps = 0.0
     frame_times = []
-    
+    frame_counter = 0
+    confidence = args.conf
+
     try:
         while True:
             loop_start = time.time()
-            timings = {}
 
             # === CAPTURE IMAGE ===
-            t0 = time.time()
             frame = camera.capture_single()
-            timings['capture'] = time.time() - t0
             if frame is None:
                 print("⚠️ Failed to capture frame, retrying...")
                 continue
 
-            # === RESIZE IF NEEDED ===
-            t0 = time.time()
-            frame_resized, scale = resize_for_inference(frame)
-            original_h, original_w = frame_resized.shape[:2]
-            timings['resize'] = time.time() - t0
+            # === RUN PIPELINE ===
+            result = pipeline.run(frame)
+            detections = result.detections
+            cropped_detections = result.cropped_detections
 
-            # === CROP TO ROI (more efficient than masking) ===
-            t0 = time.time()
-            x_offset, y_offset = 0, 0
-            if roi and roi.is_complete():
-                # Scale ROI if image was resized
-                if scale != 1.0:
-                    scaled_roi = roi.get_scaled(scale)
-                else:
-                    scaled_roi = roi
-
-                # Crop to ROI bounding box
-                frame_cropped, x_offset, y_offset = scaled_roi.crop_to_roi(frame_resized)
-                timings['crop'] = time.time() - t0
-
-                # Apply polygon mask within cropped area (for non-rectangular ROI edges)
-                t0 = time.time()
-                frame_masked = scaled_roi.apply_mask_to_cropped(frame_cropped, x_offset, y_offset)
-                timings['mask'] = time.time() - t0
-            else:
-                frame_masked = frame_resized
-                scaled_roi = None
-                timings['crop'] = time.time() - t0
-                timings['mask'] = 0
-
-            # === CONVERT TO RGB FOR MODEL ===
-            t0 = time.time()
-            frame_rgb = cv2.cvtColor(frame_masked, cv2.COLOR_BGR2RGB)
-            timings['convert'] = time.time() - t0
-
-            # === RUN INFERENCE ===
-            t0 = time.time()
-            if mode == "hybrid":
-                detections = model.predict_hybrid(frame_rgb, confidence, verbose=verbose, tiles_dir=tiles_dir)
-            elif mode == "sahi":
-                detections = model.predict_sahi(frame_rgb, confidence, verbose=verbose, tiles_dir=tiles_dir)
-            else:
-                detections = model.predict(frame_rgb, confidence)
-            inference_time = time.time() - t0
-            timings['inference'] = inference_time
-
-            # === APPLY NMS (if enabled) ===
-            if nms_enabled:
-                detections = detections.with_nms(threshold=0.45, class_agnostic=True)
-
-            # === UPDATE TRACKER (if enabled) ===
-            if tracker is not None:
-                t0 = time.time()
-                # Pass BGR frame for tracking (frame_masked is before RGB conversion)
-                detections = tracker.update(detections, frame_masked)
-                timings['tracking'] = time.time() - t0
-
-            # === KEEP CROPPED DETECTIONS FOR VISUALIZATION ===
-            # Detections are currently in cropped coordinate space
-            cropped_detections = detections
-
-            # === OFFSET DETECTIONS BACK TO ORIGINAL COORDINATES ===
-            t0 = time.time()
-            if x_offset != 0 or y_offset != 0:
-                detections = offset_detections(
-                    detections, x_offset, y_offset, original_h, original_w
-                )
-            timings['offset'] = time.time() - t0
-
-            # === FILTER DETECTIONS BY ROI POLYGON ===
-            t0 = time.time()
-            if scaled_roi and scaled_roi.is_complete():
-                detections = scaled_roi.filter_detections(detections)
-            
-            detections = add_bbox_ids_to_detections(detections)
-
-            timings['filter'] = time.time() - t0
-
-            # === SAVE LABELS AND RAW IMAGE (for debugging) ===
-            if save_labels and len(detections) > 0:
-                # Use original (resized) image dimensions for normalization
-                h, w = original_h, original_w
+            # === SAVE LABELS (for debugging) ===
+            if args.save_labels and len(detections) > 0:
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 base_name = f"frame_{timestamp}_{frame_counter:06d}"
 
-                # Save label file (coordinates are in original image space)
-                label_path = os.path.join(labels_dir, f"{base_name}.txt")
-                save_detections_to_txt(detections, label_path, h, w)
+                label_path = os.path.join(dirs['labels'], f"{base_name}.txt")
+                save_detections_to_txt(
+                    detections, label_path,
+                    result.original_height, result.original_width
+                )
 
-                # Save raw image (full resized frame for reference)
-                image_path = os.path.join(images_dir, f"{base_name}.jpg")
-                cv2.imwrite(image_path, frame_resized)
+                # Save raw image for reference (use frame from result)
+                image_path = os.path.join(dirs['images'], f"{base_name}.jpg")
+                cv2.imwrite(image_path, result.frame_resized)
 
                 frame_counter += 1
 
-            # === CALCULATE POSITIONS AND SEND (independent of save_labels) ===
-            if positioning and len(detections) > 0:
+            # === CALCULATE AND PUBLISH POSITIONS ===
+            if (args.positioning or args.web or args.mqtt) and len(detections) > 0:
                 from Positioning import calculate_positions_from_detections
-                import json
 
-                # Calculate positions directly from detections
                 positions = calculate_positions_from_detections(
                     detections,
-                    image_width=original_w,
-                    image_height=original_h,
+                    image_width=result.original_width,
+                    image_height=result.original_height,
                     enable_collision_resolution=True
                 )
 
-                # Publish via MQTT if enabled
-                if mqtt_enabled and positions:
-                    import mqtt_handler
-                    payload = format_mqtt_payload(positions)
-                    payload_json = json.dumps(payload, indent=2)
+                if args.mqtt and positions:
+                    pub_result = publish_mqtt(positions, log_dir=dirs.get('mqtt_logs', MQTT_LOGS_DIR))
+                    print(f"[MQTT] {pub_result.message}")
 
-                    # Save to log file
-                    timestamp = time.strftime("%Y%m%d_%H%M%S")
-                    mqtt_log_path = os.path.join(mqtt_logs_dir, f"mqtt_{timestamp}.txt")
-                    with open(mqtt_log_path, 'w') as f:
-                        f.write(payload_json)
-
-                    # Send via MQTT
-                    rc = mqtt_handler.send(payload_json)
-                    if rc == 0:
-                        print(f"[MQTT] Sent {len(positions)} positions")
-                    else:
-                        print(f"[MQTT] Failed to send (rc={rc})")
-
-                # Send via HTTP POST if enabled
-                if web_enabled and positions:
-                    import requests
-                    payload = format_mqtt_payload(positions)
-                    try:
-                        response = requests.post(
-                            "http://91.107.184.69:3000/data/process",
-                            json=payload,
-                            timeout=5
-                        )
-                        if response.status_code == 200:
-                            print(f"[WEB] Sent {len(positions)} positions (status={response.status_code})")
-                        else:
-                            print(f"[WEB] Server returned status={response.status_code}")
-                    except requests.exceptions.RequestException as e:
-                        print(f"[WEB] Failed to send: {e}")
+                if args.web and positions:
+                    pub_result = publish_http(positions)
+                    print(f"[WEB] {pub_result.message}")
 
             # === DRAW RESULTS ===
-            t0 = time.time()
-            # Draw on cropped frame (what model sees) with cropped coordinates
-            if roi and roi.is_complete():
-                # Convert cropped frame back to BGR for display
-                display_frame = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+            if pipeline.roi and pipeline.roi.is_complete():
+                # Use cropped/masked frame for display (already in result)
                 annotated = visualizer.draw_detections(
-                    display_frame, cropped_detections, show_masks=show_masks
+                    result.frame_display, cropped_detections, show_masks=show_masks
                 )
             else:
-                # No ROI, use full frame
+                # No ROI - use full resized frame
                 annotated = visualizer.draw_detections(
-                    frame_resized, detections, show_masks=show_masks
+                    result.frame_resized, detections, show_masks=show_masks
                 )
 
             # === CALCULATE FPS ===
@@ -475,23 +207,20 @@ def run_detection_loop(
 
             # === DRAW SUMMARY PANEL ===
             display = visualizer.draw_summary(
-                annotated, detections, fps, mode, inference_time
+                annotated, detections, fps, args.mode, result.inference_time
             )
-            timings['draw'] = time.time() - t0
 
             # === SHOW RESULT ===
-            t0 = time.time()
             visualizer.show(display)
-            timings['display'] = time.time() - t0
 
             # === LOG TIMING ===
-            timings['total'] = time.time() - loop_start
-            if log_timing:
-                timing_str = " | ".join(f"{k}: {int(v*1000)}ms" for k, v in timings.items())
+            if args.log:
+                result.timings['total'] = time.time() - loop_start
+                timing_str = " | ".join(f"{k}: {int(v*1000)}ms" for k, v in result.timings.items())
                 print(f"[LOG] {timing_str}")
 
             # === HANDLE INPUT ===
-            key = visualizer.handle_input(1)
+            key = visualizer.handle_input(DISPLAY_KEY_WAIT_MS)
 
             if key.lower() == 'q':
                 print("\n👋 Quitting...")
@@ -502,283 +231,126 @@ def run_detection_loop(
                 show_masks = not show_masks
                 print(f"🎭 Masks: {'ON' if show_masks else 'OFF'}")
             elif key == '+' or key == '=':
-                confidence = min(0.95, confidence + 0.05)
+                confidence = min(CONFIDENCE_MAX, confidence + CONFIDENCE_INCREMENT)
+                pipeline.update_confidence(confidence)
                 print(f"📈 Confidence: {confidence:.2f}")
             elif key == '-' or key == '_':
-                confidence = max(0.05, confidence - 0.05)
+                confidence = max(CONFIDENCE_MIN, confidence - CONFIDENCE_INCREMENT)
+                pipeline.update_confidence(confidence)
                 print(f"📉 Confidence: {confidence:.2f}")
-    
+
     finally:
-        # Cleanup
         camera.release()
         visualizer.destroy()
         print("✅ Done!")
 
 
-def run_image_inference(
-    checkpoint_path: str,
-    image_path: str,
-    mode: str = "full",
-    confidence: float = DEFAULT_CONFIDENCE,
-    use_openvino: bool = False,
-    output_path: str = None,
-    save_labels: bool = False,
-    labels_dir: str = "labels",
-    log_timing: bool = False,
-    verbose: bool = False,
-    positioning: bool = False,
-    positioning_dir: str = "positions",
-    mqtt_enabled: bool = False,
-    web_enabled: bool = False,
-    nms_enabled: bool = False
-):
+def run_image_inference(args, pipeline, dirs):
     """
-    Run inference on a single image file.
+    Single image inference - orchestration only.
 
     Args:
-        checkpoint_path: Path to model checkpoint
-        image_path: Path to input image
-        mode: Inference mode ('full', 'sahi', or 'hybrid')
-        confidence: Confidence threshold (0-1)
-        use_openvino: Whether to use OpenVINO optimization
-        output_path: Path for output image (optional)
-        save_labels: Whether to save detection labels to text file (debug/logging)
-        labels_dir: Directory to save label files
-        log_timing: Whether to print timing breakdown
-        verbose: Whether to save SAHI tile images for debugging
-        positioning: Whether to calculate shelf positions (auto-enabled with --web or --mqtt)
-        positioning_dir: Directory to save positioning JSON files
-        mqtt_enabled: Whether to publish positioning data via MQTT
-        web_enabled: Whether to send positioning data via HTTP POST
-        nms_enabled: Whether to apply additional NMS after inference
+        args: Parsed CLI arguments
+        pipeline: Configured InferencePipeline
+        dirs: Dict of output directory paths
     """
     from camera import load_image
-    from model import DetectionModel, resize_for_inference, offset_detections
-    from roi import ROIManager
+    from utils.label_io import save_detections_to_txt
+    from utils.network_publish import configure_mqtt, publish_mqtt, publish_http
     from visualization import Visualizer
-    from config import VERBOSE_TILES_DIR
-
-    # Auto-enable positioning when web or mqtt is enabled
-    if web_enabled or mqtt_enabled:
-        positioning = True
-
-    print("=" * 60)
-    print("RF-DETR IMAGE INFERENCE")
-    print("=" * 60)
-    print(f"Image: {image_path}")
-    print(f"Mode: {mode.upper()}")
-    print(f"Confidence: {confidence}")
-    print(f"Save Labels: {'Yes -> ' + labels_dir if save_labels else 'No'}")
-    print(f"Positioning: {'Yes' if positioning else 'No'}")
-    print(f"MQTT: {'Yes' if mqtt_enabled else 'No'}")
-    print(f"Web POST: {'Yes' if web_enabled else 'No'}")
-    print(f"NMS: {'Yes (threshold=0.45)' if nms_enabled else 'No'}")
-    print(f"Log Timing: {'Yes' if log_timing else 'No'}")
-    print(f"Verbose Tiles: {'Yes -> ' + VERBOSE_TILES_DIR if verbose else 'No'}")
-    print("=" * 60)
-
-    # Create verbose tiles directory if needed
-    tiles_dir = None
-    if verbose:
-        tiles_dir = VERBOSE_TILES_DIR
-        os.makedirs(tiles_dir, exist_ok=True)
-
-    total_start = time.time()
-    timings = {}
 
     # Load image
-    t0 = time.time()
-    frame = load_image(image_path)
-    timings['load'] = time.time() - t0
+    frame = load_image(args.image)
     if frame is None:
         return
 
-    # Initialize ROI
-    roi = ROIManager()
-    has_roi = roi.load()
-    if not has_roi:
-        print("⚠️ No ROI configured. Processing full image.")
-        roi = None
+    # Configure MQTT if enabled
+    if args.mqtt:
+        configure_mqtt()
 
-    # Initialize model
-    print("\n📦 Loading model...")
-    t0 = time.time()
-    model = DetectionModel(checkpoint_path, use_openvino)
-    timings['model_load'] = time.time() - t0
+    print(f"\n🔍 Running inference ({args.mode} mode)...")
 
-    # Resize if needed
-    t0 = time.time()
-    frame_resized, scale = resize_for_inference(frame)
-    original_h, original_w = frame_resized.shape[:2]
-    timings['resize'] = time.time() - t0
+    # === RUN PIPELINE ===
+    result = pipeline.run(frame)
+    detections = result.detections
+    cropped_detections = result.cropped_detections
 
-    # Crop to ROI (more efficient than masking)
-    t0 = time.time()
-    x_offset, y_offset = 0, 0
-    if roi and roi.is_complete():
-        if scale != 1.0:
-            scaled_roi = roi.get_scaled(scale)
-        else:
-            scaled_roi = roi
-
-        # Crop to ROI bounding box
-        frame_cropped, x_offset, y_offset = scaled_roi.crop_to_roi(frame_resized)
-        timings['crop'] = time.time() - t0
-
-        # Apply polygon mask within cropped area
-        t0 = time.time()
-        frame_masked = scaled_roi.apply_mask_to_cropped(frame_cropped, x_offset, y_offset)
-        timings['mask'] = time.time() - t0
-    else:
-        frame_masked = frame_resized
-        scaled_roi = None
-        timings['crop'] = time.time() - t0
-        timings['mask'] = 0
-
-    # Convert to RGB
-    t0 = time.time()
-    frame_rgb = cv2.cvtColor(frame_masked, cv2.COLOR_BGR2RGB)
-    timings['convert'] = time.time() - t0
-
-    # Run inference
-    print(f"\n🔍 Running inference ({mode} mode)...")
-    t0 = time.time()
-    if mode == "hybrid":
-        detections = model.predict_hybrid(frame_rgb, confidence, verbose=verbose, tiles_dir=tiles_dir)
-    elif mode == "sahi":
-        detections = model.predict_sahi(frame_rgb, confidence, verbose=verbose, tiles_dir=tiles_dir)
-    else:
-        detections = model.predict(frame_rgb, confidence)
-    inference_time = time.time() - t0
-    timings['inference'] = inference_time
-    print(f"✅ Inference completed in {inference_time:.2f}s")
-
-    # === APPLY NMS (if enabled) ===
-    if nms_enabled:
-        detections = detections.with_nms(threshold=0.45, class_agnostic=True)
-
-    # Keep cropped detections for visualization
-    cropped_detections = detections
-
-    # Offset detections back to original coordinates
-    t0 = time.time()
-    if x_offset != 0 or y_offset != 0:
-        detections = offset_detections(
-            detections, x_offset, y_offset, original_h, original_w
-        )
-    timings['offset'] = time.time() - t0
-
-    # Filter detections by ROI polygon
-    t0 = time.time()
-    if scaled_roi and scaled_roi.is_complete():
-        detections = scaled_roi.filter_detections(detections)
-    timings['filter'] = time.time() - t0
-
-    # Print summary
+    print(f"✅ Inference completed in {result.inference_time:.2f}s")
     print(f"\n📊 Detected {len(detections)} objects")
 
-    # Log timing
-    timings['total'] = time.time() - total_start
-    if log_timing:
-        timing_str = " | ".join(f"{k}: {int(v*1000)}ms" for k, v in timings.items())
+    # === LOG TIMING ===
+    if args.log:
+        timing_str = " | ".join(f"{k}: {int(v*1000)}ms" for k, v in result.timings.items())
         print(f"\n[LOG] {timing_str}")
 
-    # Save labels and raw image (for debugging)
-    if save_labels and len(detections) > 0:
-        os.makedirs(labels_dir, exist_ok=True)
-        images_dir = os.path.join(os.path.dirname(labels_dir) or ".", "images")
-        os.makedirs(images_dir, exist_ok=True)
+    # === SAVE LABELS ===
+    if args.save_labels and len(detections) > 0:
+        base_name = os.path.splitext(os.path.basename(args.image))[0]
 
-        # Use original image dimensions for normalization
-        h, w = original_h, original_w
-        base_name = os.path.splitext(os.path.basename(image_path))[0]
-
-        # Save label file (coordinates are in original image space)
-        label_path = os.path.join(labels_dir, f"{base_name}.txt")
-        save_detections_to_txt(detections, label_path, h, w)
+        label_path = os.path.join(dirs['labels'], f"{base_name}.txt")
+        save_detections_to_txt(
+            detections, label_path,
+            result.original_height, result.original_width
+        )
         print(f"📝 Labels saved to: {label_path}")
 
-        # Save raw image (full resized frame for reference)
-        raw_image_path = os.path.join(images_dir, f"{base_name}.jpg")
-        cv2.imwrite(raw_image_path, frame_resized)
+        # Save raw image (use frame from result)
+        raw_image_path = os.path.join(dirs['images'], f"{base_name}.jpg")
+        cv2.imwrite(raw_image_path, result.frame_resized)
         print(f"🖼️ Raw image saved to: {raw_image_path}")
 
-    # Calculate positions and send (independent of save_labels)
-    if positioning and len(detections) > 0:
+    # === CALCULATE AND PUBLISH POSITIONS ===
+    if (args.positioning or args.web or args.mqtt) and len(detections) > 0:
         from Positioning import calculate_positions_from_detections
-        import json
 
-        # Calculate positions directly from detections
         positions = calculate_positions_from_detections(
             detections,
-            image_width=original_w,
-            image_height=original_h,
+            image_width=result.original_width,
+            image_height=result.original_height,
             enable_collision_resolution=True
         )
 
         if positions:
             print(f"📍 Calculated {len(positions)} positions")
 
-        # Publish via MQTT if enabled
-        if mqtt_enabled and positions:
-            import mqtt_handler
-            mqtt_handler.configure(
-                broker_host="89.36.137.77",
-                broker_port=1883,
-                default_topic="test/topic"
+        if args.mqtt and positions:
+            base_name = os.path.splitext(os.path.basename(args.image))[0]
+            pub_result = publish_mqtt(
+                positions,
+                log_dir=dirs.get('mqtt_logs', MQTT_LOGS_DIR),
+                log_name=f"{base_name}.txt"
             )
-            payload = format_mqtt_payload(positions)
-            payload_json = json.dumps(payload, indent=2)
+            print(f"[MQTT] {pub_result.message}")
 
-            # Save to file
-            mqtt_logs_dir = "mqtt_logs"
-            os.makedirs(mqtt_logs_dir, exist_ok=True)
-            base_name = os.path.splitext(os.path.basename(image_path))[0]
-            mqtt_log_path = os.path.join(mqtt_logs_dir, f"{base_name}.txt")
-            with open(mqtt_log_path, 'w') as f:
-                f.write(payload_json)
+        if args.web and positions:
+            pub_result = publish_http(positions)
+            print(f"[WEB] {pub_result.message}")
 
-            # Send via MQTT
-            rc = mqtt_handler.send(payload_json)
-            if rc == 0:
-                print(f"[MQTT] Sent {len(positions)} positions")
-            else:
-                print(f"[MQTT] Failed to send (rc={rc})")
-
-        # Send via HTTP POST if enabled
-        if web_enabled and positions:
-            import requests
-            payload = format_mqtt_payload(positions)
-            try:
-                response = requests.post(
-                    "http://91.107.184.69:3000/data/process",
-                    json=payload,
-                    timeout=5
-                )
-                if response.status_code == 200:
-                    print(f"[WEB] Sent {len(positions)} positions (status={response.status_code})")
-                else:
-                    print(f"[WEB] Server returned status={response.status_code}")
-            except requests.exceptions.RequestException as e:
-                print(f"[WEB] Failed to send: {e}")
-
-    # Visualize - use cropped frame (what model sees) with cropped coordinates
+    # === VISUALIZE ===
     visualizer = Visualizer()
-    if roi and roi.is_complete():
-        display_frame = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-        annotated = visualizer.draw_detections(display_frame, cropped_detections, show_masks=True)
+
+    if pipeline.roi and pipeline.roi.is_complete():
+        # Use cropped/masked frame for display (already in result)
+        annotated = visualizer.draw_detections(
+            result.frame_display, cropped_detections, show_masks=True
+        )
     else:
-        annotated = visualizer.draw_detections(frame_resized, detections, show_masks=True)
-    display = visualizer.draw_summary(annotated, detections, 0, mode, inference_time)
-    
+        # No ROI - use full resized frame
+        annotated = visualizer.draw_detections(
+            result.frame_resized, detections, show_masks=True
+        )
+
+    display = visualizer.draw_summary(annotated, detections, 0, args.mode, result.inference_time)
+
     # Save result
+    output_path = args.output
     if output_path is None:
-        base_name = os.path.splitext(os.path.basename(image_path))[0]
+        base_name = os.path.splitext(os.path.basename(args.image))[0]
         output_path = f"{base_name}_detection.jpg"
-    
+
     cv2.imwrite(output_path, display)
     print(f"✅ Result saved to: {output_path}")
-    
+
     # Show result
     print("\n📺 Displaying result... Press any key to close")
     h, w = display.shape[:2]
@@ -790,153 +362,152 @@ def run_image_inference(
     cv2.destroyAllWindows()
 
 
-def main():
-    """Main entry point."""
+def create_argument_parser() -> argparse.ArgumentParser:
+    """Create and configure argument parser."""
     parser = argparse.ArgumentParser(description="RF-DETR Detection System")
-    
+
     parser.add_argument(
-        "--image",
-        type=str,
-        default=None,
+        "--image", type=str, default=None,
         help="Path to image file for single image inference"
     )
     parser.add_argument(
-        "--output",
-        type=str,
-        default=None,
+        "--output", type=str, default=None,
         help="Output path for image inference result"
     )
     parser.add_argument(
-        "--mode",
-        choices=["full", "sahi", "hybrid"],
-        default="sahi",
+        "--mode", choices=["full", "sahi", "hybrid"], default="sahi",
         help="Inference mode: 'full' for full frame, 'sahi' for tiled, 'hybrid' for full+sahi combined"
     )
     parser.add_argument(
-        "--checkpoint",
-        default=DEFAULT_CHECKPOINT,
+        "--checkpoint", default=DEFAULT_CHECKPOINT,
         help="Path to model checkpoint"
     )
     parser.add_argument(
-        "--conf",
-        type=float,
-        default=DEFAULT_CONFIDENCE,
+        "--conf", type=float, default=DEFAULT_CONFIDENCE,
         help="Confidence threshold (0.0-1.0)"
     )
     parser.add_argument(
-        "--openvino",
-        action="store_true",
+        "--openvino", action="store_true",
         help="Enable OpenVINO optimization for Intel CPU"
     )
     parser.add_argument(
-        "--camera",
-        type=int,
-        default=CAMERA_INDEX,
+        "--camera", type=int, default=CAMERA_INDEX,
         help="Camera index (default: 0)"
     )
     parser.add_argument(
-        "--save-labels",
-        action="store_true",
+        "--save-labels", action="store_true",
         help="Save detections to text file (class_id + polygon per line)"
     )
     parser.add_argument(
-        "--labels-dir",
-        type=str,
-        default="labels",
-        help="Directory to save label files (default: labels/)"
+        "--labels-dir", type=str, default=LABELS_DIR,
+        help="Directory to save label files"
     )
     parser.add_argument(
-        "--log",
-        action="store_true",
+        "--log", action="store_true",
         help="Print timing breakdown for each pipeline stage per frame"
     )
     parser.add_argument(
-        "--verbose",
-        action="store_true",
+        "--verbose", action="store_true",
         help="Save SAHI tile images to verbose_tiles/ directory for debugging"
     )
     parser.add_argument(
-        "--positioning",
-        action="store_true",
+        "--positioning", action="store_true",
         help="Calculate shelf positions after detection (auto-enabled with --web or --mqtt)"
     )
     parser.add_argument(
-        "--positioning-dir",
-        type=str,
-        default="positions",
-        help="Directory to save positioning JSON files (default: positions/)"
+        "--positioning-dir", type=str, default=POSITIONS_DIR,
+        help="Directory to save positioning JSON files"
     )
     parser.add_argument(
-        "--mqtt",
-        action="store_true",
+        "--mqtt", action="store_true",
         help="Publish positioning data via MQTT (auto-enables positioning)"
     )
     parser.add_argument(
-        "--web",
-        action="store_true",
+        "--web", action="store_true",
         help="Send positioning data via HTTP POST (auto-enables positioning)"
     )
     parser.add_argument(
-        "--track",
-        action="store_true",
+        "--track", action="store_true",
         help="Enable object tracking with persistent IDs (BoT-SORT)"
     )
     parser.add_argument(
-        "--nms",
-        action="store_true",
+        "--nms", action="store_true",
         help="Apply additional NMS after inference to remove duplicate detections"
     )
 
+    return parser
+
+
+def main():
+    """Main entry point."""
+    parser = create_argument_parser()
     args = parser.parse_args()
-    
+
     # Check checkpoint exists
     if not os.path.exists(args.checkpoint):
         print(f"❌ Checkpoint not found: {args.checkpoint}")
-        print("\nAvailable checkpoints:")
         checkpoint_dir = os.path.dirname(args.checkpoint) or "runs/rfdetr_seg_training"
         if os.path.exists(checkpoint_dir):
+            print("\nAvailable checkpoints:")
             for f in os.listdir(checkpoint_dir):
                 if f.endswith('.pth'):
                     print(f"  - {os.path.join(checkpoint_dir, f)}")
         sys.exit(1)
-    
-    # Run image or camera mode
+
+    # Setup directories
+    dirs = setup_directories(args)
+
+    # Create pipeline configuration
+    from pipeline import PipelineConfig, create_pipeline
+
+    config = PipelineConfig(
+        mode=args.mode,
+        confidence=args.conf,
+        nms_enabled=args.nms,
+        track_enabled=args.track if not args.image else False,  # No tracking for single images
+        verbose=args.verbose,
+        tiles_dir=dirs.get('tiles')
+    )
+
+    # Create pipeline
+    print("\n📦 Loading model...")
+    pipeline = create_pipeline(
+        checkpoint_path=args.checkpoint,
+        use_openvino=args.openvino,
+        config=config
+    )
+
+    # Check ROI
+    has_roi = pipeline.roi is not None
+    if not has_roi and not args.image:
+        print("⚠️ No ROI configured. Run 'python calibrate.py' first.")
+        response = input("Continue without ROI? (y/n): ")
+        if response.lower() != 'y':
+            return
+
+    # Print banner
+    print_banner(args, has_roi)
+
+    # Run appropriate mode
     if args.image:
-        run_image_inference(
-            checkpoint_path=args.checkpoint,
-            image_path=args.image,
-            mode=args.mode,
-            confidence=args.conf,
-            use_openvino=args.openvino,
-            output_path=args.output,
-            save_labels=args.save_labels,
-            labels_dir=args.labels_dir,
-            log_timing=args.log,
-            verbose=args.verbose,
-            positioning=args.positioning,
-            positioning_dir=args.positioning_dir,
-            mqtt_enabled=args.mqtt,
-            web_enabled=args.web,
-            nms_enabled=args.nms
-        )
+        run_image_inference(args, pipeline, dirs)
     else:
-        run_detection_loop(
-            checkpoint_path=args.checkpoint,
-            mode=args.mode,
-            confidence=args.conf,
-            use_openvino=args.openvino,
-            camera_index=args.camera,
-            save_labels=args.save_labels,
-            labels_dir=args.labels_dir,
-            log_timing=args.log,
-            verbose=args.verbose,
-            positioning=args.positioning,
-            positioning_dir=args.positioning_dir,
-            mqtt_enabled=args.mqtt,
-            web_enabled=args.web,
-            track_enabled=args.track,
-            nms_enabled=args.nms
-        )
+        from camera import ImageCapture
+        from visualization import Visualizer
+
+        print("\n📷 Opening camera...")
+        camera = ImageCapture(args.camera, CAMERA_WIDTH, CAMERA_HEIGHT)
+        if not camera.open():
+            print("❌ Failed to open camera. Exiting.")
+            return
+
+        visualizer = Visualizer()
+        visualizer.create_window(CAMERA_WIDTH, CAMERA_HEIGHT)
+
+        if args.track:
+            print("\n🔗 Tracker initialized (BoT-SORT)")
+
+        run_detection_loop(args, pipeline, camera, visualizer, dirs)
 
 
 if __name__ == "__main__":
