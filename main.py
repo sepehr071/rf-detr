@@ -497,8 +497,10 @@ def main():
     keypoint_processor = None
     if args.positioning or args.web or args.mqtt:
         from utils.keypoint_processor import KeypointProcessor
-        keypoint_processor = KeypointProcessor()
+        keypoint_processor = KeypointProcessor(save_debug_crops=args.verbose)
         print("🔑 Keypoint processor initialized for rotation detection")
+        if args.verbose:
+            print("   Debug crops will be saved to debug_crops/ directory")
 
     # Check ROI
     has_roi = pipeline.roi is not None

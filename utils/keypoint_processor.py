@@ -50,6 +50,7 @@ class KeypointProcessor:
         temp_dir: str = KEYPOINT_TEMP_DIR,
         big_object_classes: set = None,
         min_confidence: float = KEYPOINT_MIN_CONFIDENCE,
+        save_debug_crops: bool = False,
     ):
         """
         Initialize the keypoint processor.
@@ -60,13 +61,16 @@ class KeypointProcessor:
             temp_dir: Directory for temporary crop files
             big_object_classes: Set of class IDs to process (default: {1, 4})
             min_confidence: Minimum keypoint confidence threshold
+            save_debug_crops: Save cropped images to debug_crops/ for debugging
         """
         self.model_path = model_path
         self.margin = margin
         self.temp_dir = temp_dir
         self.big_object_classes = big_object_classes or KEYPOINT_BIG_OBJECT_CLASSES
         self.min_confidence = min_confidence
+        self.save_debug_crops = save_debug_crops
         self._model = None  # Lazy-loaded
+        self._crop_counter = 0
 
     def _get_model(self):
         """Lazy-load the YOLO pose model."""
@@ -136,6 +140,15 @@ class KeypointProcessor:
                 if debug:
                     print(f"[KEYPOINT] Crop failed for class={class_id} bbox={bbox_id}")
                 continue
+
+            # Save debug crops if enabled
+            if self.save_debug_crops:
+                debug_dir = "debug_crops"
+                os.makedirs(debug_dir, exist_ok=True)
+                self._crop_counter += 1
+                debug_path = os.path.join(debug_dir, f"crop_{self._crop_counter:04d}_class{class_id}.jpg")
+                cv2.imwrite(debug_path, cropped)
+                print(f"[KEYPOINT] Saved debug crop: {debug_path} ({cropped.shape[1]}x{cropped.shape[0]})")
 
             # Run keypoint inference
             kp_result = self._run_keypoint_inference(cropped)
