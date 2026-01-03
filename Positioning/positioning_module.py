@@ -2,6 +2,7 @@ import os
 import json
 import cv2
 import numpy as np
+from typing import Dict
 from shapely.geometry import Point, box
 from shapely import affinity
 
@@ -459,7 +460,8 @@ def calculate_positions_from_detections(
     shelf_depth: float = 0.385,
     calib_width: int = 640,
     calib_height: int = 480,
-    use_homography: bool = True
+    use_homography: bool = True,
+    angle_map: Dict[str, float] = None,
 ) -> list:
     """
     Calculate world positions directly from a supervision Detections object.
@@ -475,6 +477,7 @@ def calculate_positions_from_detections(
         calib_width: Calibration image width
         calib_height: Calibration image height
         use_homography: Use homography transform (True) or ray-plane intersection (False)
+        angle_map: Dict mapping bbox_id (x1_y1_x2_y2) to rotation angle (0-359)
 
     Returns:
         List of position dictionaries with object_id, class_id, pixel_coords, world_coords, shelf_position
@@ -531,12 +534,23 @@ def calculate_positions_from_detections(
 
         if world_coords:
             wx, wy = world_coords
+
+            # Generate bbox_id for angle_map lookup
+            bbox_id = f"{int(round(x1))}_{int(round(y1))}_{int(round(x2))}_{int(round(y2))}"
+
+            # Get rotation from angle_map if provided, otherwise fallback to MANUAL_ROTATIONS
+            if angle_map and bbox_id in angle_map:
+                rotation = angle_map[bbox_id]
+            else:
+                rotation = MANUAL_ROTATIONS.get(obj_id, 0)
+
             valid_objects.append({
                 "object_id": obj_id,
                 "class_id": int(class_id),
                 "pixel_coords": [px_orig, py_orig],
                 "world_coords": [wx, wy],
-                "rotation": MANUAL_ROTATIONS.get(obj_id, 0)
+                "rotation": rotation,
+                "bbox_id": bbox_id,
             })
         else:
             error_objects.append({

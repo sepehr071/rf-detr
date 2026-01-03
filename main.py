@@ -104,7 +104,7 @@ def print_banner(args, has_roi: bool):
     print("=" * 60)
 
 
-def run_detection_loop(args, pipeline, camera, visualizer, dirs):
+def run_detection_loop(args, pipeline, camera, visualizer, dirs, keypoint_processor=None):
     """
     Main camera detection loop - orchestration only.
 
@@ -114,6 +114,7 @@ def run_detection_loop(args, pipeline, camera, visualizer, dirs):
         camera: ImageCapture instance
         visualizer: Visualizer instance
         dirs: Dict of output directory paths
+        keypoint_processor: Optional KeypointProcessor for big object angle detection
     """
     from utils.label_io import save_detections_to_txt
     from utils.network_publish import configure_mqtt, publish_mqtt, publish_http
@@ -168,6 +169,11 @@ def run_detection_loop(args, pipeline, camera, visualizer, dirs):
 
                 frame_counter += 1
 
+            # === CALCULATE KEYPOINT ANGLES FOR BIG OBJECTS ===
+            angle_map = {}
+            if keypoint_processor and len(detections) > 0:
+                angle_map = keypoint_processor.process(detections, result.frame_resized)
+
             # === CALCULATE AND PUBLISH POSITIONS ===
             if (args.positioning or args.web or args.mqtt) and len(detections) > 0:
                 from Positioning import calculate_positions_from_detections
@@ -176,7 +182,8 @@ def run_detection_loop(args, pipeline, camera, visualizer, dirs):
                     detections,
                     image_width=result.original_width,
                     image_height=result.original_height,
-                    enable_collision_resolution=True
+                    enable_collision_resolution=True,
+                    angle_map=angle_map,
                 )
 
                 if args.mqtt and positions:
@@ -242,10 +249,12 @@ def run_detection_loop(args, pipeline, camera, visualizer, dirs):
     finally:
         camera.release()
         visualizer.destroy()
+        if keypoint_processor:
+            keypoint_processor.cleanup()
         print("✅ Done!")
 
 
-def run_image_inference(args, pipeline, dirs):
+def run_image_inference(args, pipeline, dirs, keypoint_processor=None):
     """
     Single image inference - orchestration only.
 
@@ -253,6 +262,7 @@ def run_image_inference(args, pipeline, dirs):
         args: Parsed CLI arguments
         pipeline: Configured InferencePipeline
         dirs: Dict of output directory paths
+        keypoint_processor: Optional KeypointProcessor for big object angle detection
     """
     from camera import load_image
     from utils.label_io import save_detections_to_txt
@@ -299,6 +309,11 @@ def run_image_inference(args, pipeline, dirs):
         cv2.imwrite(raw_image_path, result.frame_resized)
         print(f"🖼️ Raw image saved to: {raw_image_path}")
 
+    # === CALCULATE KEYPOINT ANGLES FOR BIG OBJECTS ===
+    angle_map = {}
+    if keypoint_processor and len(detections) > 0:
+        angle_map = keypoint_processor.process(detections, result.frame_resized)
+
     # === CALCULATE AND PUBLISH POSITIONS ===
     if (args.positioning or args.web or args.mqtt) and len(detections) > 0:
         from Positioning import calculate_positions_from_detections
@@ -307,7 +322,8 @@ def run_image_inference(args, pipeline, dirs):
             detections,
             image_width=result.original_width,
             image_height=result.original_height,
-            enable_collision_resolution=True
+            enable_collision_resolution=True,
+            angle_map=angle_map,
         )
 
         if positions:
@@ -411,8 +427,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help="Save SAHI tile images to verbose_tiles/ directory for debugging"
     )
     parser.add_argument(
-        "--positioning", action="store_true",
-        help="Calculate shelf positions after detection (auto-enabled with --web or --mqtt)"
+        "--positioning", action="store_true", default=True,
+        help="Calculate shelf positions after detection (enabled by default)"
     )
     parser.add_argument(
         "--positioning-dir", type=str, default=POSITIONS_DIR,
@@ -477,6 +493,13 @@ def main():
         config=config
     )
 
+    # Initialize keypoint processor if positioning enabled (for big object rotation)
+    keypoint_processor = None
+    if args.positioning or args.web or args.mqtt:
+        from utils.keypoint_processor import KeypointProcessor
+        keypoint_processor = KeypointProcessor()
+        print("🔑 Keypoint processor initialized for rotation detection")
+
     # Check ROI
     has_roi = pipeline.roi is not None
     if not has_roi and not args.image:
@@ -490,7 +513,7 @@ def main():
 
     # Run appropriate mode
     if args.image:
-        run_image_inference(args, pipeline, dirs)
+        run_image_inference(args, pipeline, dirs, keypoint_processor)
     else:
         from camera import ImageCapture
         from visualization import Visualizer
@@ -507,7 +530,7 @@ def main():
         if args.track:
             print("\n🔗 Tracker initialized (BoT-SORT)")
 
-        run_detection_loop(args, pipeline, camera, visualizer, dirs)
+        run_detection_loop(args, pipeline, camera, visualizer, dirs, keypoint_processor)
 
 
 if __name__ == "__main__":
