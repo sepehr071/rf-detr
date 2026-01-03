@@ -88,6 +88,7 @@ class KeypointProcessor:
         detections,
         frame: np.ndarray,
         calibrator=None,
+        debug: bool = True,
     ) -> Dict[str, float]:
         """
         Process detections and return angle map for big objects.
@@ -96,6 +97,7 @@ class KeypointProcessor:
             detections: supervision.Detections with xyxy, class_id
             frame: BGR frame (in original/resized coordinates)
             calibrator: Optional FisheyeCalibrator for world coord angle calculation
+            debug: Print debug info
 
         Returns:
             Dict mapping bbox_id -> angle (0-359 degrees)
@@ -113,6 +115,9 @@ class KeypointProcessor:
         # Filter for big objects
         big_objects = self._filter_big_objects(detections)
 
+        if debug and big_objects:
+            print(f"[KEYPOINT] Found {len(big_objects)} big objects (class_id in {self.big_object_classes})")
+
         if not big_objects:
             return angle_map
 
@@ -128,6 +133,8 @@ class KeypointProcessor:
             cropped, offset = self._crop_with_margin(frame, bbox)
 
             if cropped is None or cropped.size == 0:
+                if debug:
+                    print(f"[KEYPOINT] Crop failed for class={class_id} bbox={bbox_id}")
                 continue
 
             # Run keypoint inference
@@ -140,6 +147,13 @@ class KeypointProcessor:
                 # Calculate angle
                 angle = self._calculate_angle_from_keypoints(keypoints, calibrator)
                 angle_map[bbox_id] = angle
+
+                if debug:
+                    print(f"[KEYPOINT] class={class_id} angle={angle}° keypoints={len(keypoints)}")
+            else:
+                if debug:
+                    kp_count = len(kp_result.get('keypoints', [])) if kp_result else 0
+                    print(f"[KEYPOINT] No keypoints for class={class_id} (got {kp_count}, need 4)")
 
         return angle_map
 
