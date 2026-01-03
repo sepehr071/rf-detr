@@ -101,10 +101,11 @@ def print_banner(args, has_roi: bool, use_openvino: bool):
         print(f"Tracking: {'Yes (BoT-SORT)' if args.track else 'No'}")
     print(f"NMS: {'Yes' if args.nms else 'No'}")
     print(f"Verbose Tiles: {'Yes -> ' + VERBOSE_TILES_DIR if args.verbose else 'No'}")
+    print(f"CLI Mode: {'Yes (no preview)' if args.cli else 'No (GUI)'}")
     print("=" * 60)
 
 
-def run_detection_loop(args, pipeline, camera, visualizer, dirs, keypoint_processor=None):
+def run_detection_loop(args, pipeline, camera, visualizer, dirs, keypoint_processor=None, cli_mode=False):
     """
     Main camera detection loop - orchestration only.
 
@@ -112,9 +113,10 @@ def run_detection_loop(args, pipeline, camera, visualizer, dirs, keypoint_proces
         args: Parsed CLI arguments
         pipeline: Configured InferencePipeline
         camera: ImageCapture instance
-        visualizer: Visualizer instance
+        visualizer: Visualizer instance (None if cli_mode=True)
         dirs: Dict of output directory paths
         keypoint_processor: Optional KeypointProcessor for big object angle detection
+        cli_mode: If True, skip all visualization for better performance
     """
     from utils.label_io import save_detections_to_txt
     from utils.network_publish import configure_mqtt, publish_mqtt, publish_http
@@ -124,10 +126,13 @@ def run_detection_loop(args, pipeline, camera, visualizer, dirs, keypoint_proces
         configure_mqtt()
 
     print("\n🎯 Starting detection loop...")
-    print("   Press 'Q' to quit")
-    print("   Press 'S' to save screenshot")
-    print("   Press 'M' to toggle masks")
-    print("   Press '+'/'-' to adjust confidence")
+    if cli_mode:
+        print("   CLI mode: Press Ctrl+C to quit")
+    else:
+        print("   Press 'Q' to quit")
+        print("   Press 'S' to save screenshot")
+        print("   Press 'M' to toggle masks")
+        print("   Press '+'/'-' to adjust confidence")
     print()
 
     # State variables
@@ -194,31 +199,36 @@ def run_detection_loop(args, pipeline, camera, visualizer, dirs, keypoint_proces
                     pub_result = publish_http(positions)
                     print(f"[WEB] {pub_result.message}")
 
-            # === DRAW RESULTS ===
-            if pipeline.roi and pipeline.roi.is_complete():
-                # Use cropped/masked frame for display (already in result)
-                annotated = visualizer.draw_detections(
-                    result.frame_display, cropped_detections, show_masks=show_masks
-                )
-            else:
-                # No ROI - use full resized frame
-                annotated = visualizer.draw_detections(
-                    result.frame_resized, detections, show_masks=show_masks
-                )
-
             # === CALCULATE FPS ===
             frame_times.append(time.time() - loop_start)
             if len(frame_times) > 10:
                 frame_times.pop(0)
             fps = 1.0 / (sum(frame_times) / len(frame_times))
 
-            # === DRAW SUMMARY PANEL ===
-            display = visualizer.draw_summary(
-                annotated, detections, fps, args.mode, result.inference_time
-            )
+            # === CLI MODE: Print to terminal instead of visualizing ===
+            if cli_mode:
+                timestamp = time.strftime("%H:%M:%S")
+                print(f"[{timestamp}] Detected {len(detections)} objects | Inference: {int(result.inference_time*1000)}ms | FPS: {fps:.1f}")
+            else:
+                # === DRAW RESULTS (GUI mode only) ===
+                if pipeline.roi and pipeline.roi.is_complete():
+                    # Use cropped/masked frame for display (already in result)
+                    annotated = visualizer.draw_detections(
+                        result.frame_display, cropped_detections, show_masks=show_masks
+                    )
+                else:
+                    # No ROI - use full resized frame
+                    annotated = visualizer.draw_detections(
+                        result.frame_resized, detections, show_masks=show_masks
+                    )
 
-            # === SHOW RESULT ===
-            visualizer.show(display)
+                # === DRAW SUMMARY PANEL ===
+                display = visualizer.draw_summary(
+                    annotated, detections, fps, args.mode, result.inference_time
+                )
+
+                # === SHOW RESULT ===
+                visualizer.show(display)
 
             # === LOG TIMING ===
             if args.log:
@@ -226,35 +236,40 @@ def run_detection_loop(args, pipeline, camera, visualizer, dirs, keypoint_proces
                 timing_str = " | ".join(f"{k}: {int(v*1000)}ms" for k, v in result.timings.items())
                 print(f"[LOG] {timing_str}")
 
-            # === HANDLE INPUT ===
-            key = visualizer.handle_input(DISPLAY_KEY_WAIT_MS)
+            # === HANDLE INPUT (GUI mode only) ===
+            if not cli_mode:
+                key = visualizer.handle_input(DISPLAY_KEY_WAIT_MS)
 
-            if key.lower() == 'q':
-                print("\n👋 Quitting...")
-                break
-            elif key.lower() == 's':
-                visualizer.save_screenshot(display)
-            elif key.lower() == 'm':
-                show_masks = not show_masks
-                print(f"🎭 Masks: {'ON' if show_masks else 'OFF'}")
-            elif key == '+' or key == '=':
-                confidence = min(CONFIDENCE_MAX, confidence + CONFIDENCE_INCREMENT)
-                pipeline.update_confidence(confidence)
-                print(f"📈 Confidence: {confidence:.2f}")
-            elif key == '-' or key == '_':
-                confidence = max(CONFIDENCE_MIN, confidence - CONFIDENCE_INCREMENT)
-                pipeline.update_confidence(confidence)
-                print(f"📉 Confidence: {confidence:.2f}")
+                if key.lower() == 'q':
+                    print("\n👋 Quitting...")
+                    break
+                elif key.lower() == 's':
+                    visualizer.save_screenshot(display)
+                elif key.lower() == 'm':
+                    show_masks = not show_masks
+                    print(f"🎭 Masks: {'ON' if show_masks else 'OFF'}")
+                elif key == '+' or key == '=':
+                    confidence = min(CONFIDENCE_MAX, confidence + CONFIDENCE_INCREMENT)
+                    pipeline.update_confidence(confidence)
+                    print(f"📈 Confidence: {confidence:.2f}")
+                elif key == '-' or key == '_':
+                    confidence = max(CONFIDENCE_MIN, confidence - CONFIDENCE_INCREMENT)
+                    pipeline.update_confidence(confidence)
+                    print(f"📉 Confidence: {confidence:.2f}")
+
+    except KeyboardInterrupt:
+        print("\n👋 Interrupted by user...")
 
     finally:
         camera.release()
-        visualizer.destroy()
+        if visualizer:
+            visualizer.destroy()
         if keypoint_processor:
             keypoint_processor.cleanup()
         print("✅ Done!")
 
 
-def run_image_inference(args, pipeline, dirs, keypoint_processor=None):
+def run_image_inference(args, pipeline, dirs, keypoint_processor=None, cli_mode=False):
     """
     Single image inference - orchestration only.
 
@@ -263,11 +278,11 @@ def run_image_inference(args, pipeline, dirs, keypoint_processor=None):
         pipeline: Configured InferencePipeline
         dirs: Dict of output directory paths
         keypoint_processor: Optional KeypointProcessor for big object angle detection
+        cli_mode: If True, skip preview window display
     """
     from camera import load_image
     from utils.label_io import save_detections_to_txt
     from utils.network_publish import configure_mqtt, publish_mqtt, publish_http
-    from visualization import Visualizer
 
     # Load image
     frame = load_image(args.image)
@@ -342,7 +357,8 @@ def run_image_inference(args, pipeline, dirs, keypoint_processor=None):
             pub_result = publish_http(positions)
             print(f"[WEB] {pub_result.message}")
 
-    # === VISUALIZE ===
+    # === VISUALIZE (skip in CLI mode except saving) ===
+    from visualization import Visualizer
     visualizer = Visualizer()
 
     if pipeline.roi and pipeline.roi.is_complete():
@@ -367,15 +383,18 @@ def run_image_inference(args, pipeline, dirs, keypoint_processor=None):
     cv2.imwrite(output_path, display)
     print(f"✅ Result saved to: {output_path}")
 
-    # Show result
-    print("\n📺 Displaying result... Press any key to close")
-    h, w = display.shape[:2]
-    cv2.namedWindow("Detection Result", cv2.WINDOW_NORMAL)
-    screen_scale = min(1.0, 1400 / w, 900 / h)
-    cv2.resizeWindow("Detection Result", int(w * screen_scale), int(h * screen_scale))
-    cv2.imshow("Detection Result", display)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # Show result (skip in CLI mode)
+    if not cli_mode:
+        print("\n📺 Displaying result... Press any key to close")
+        h, w = display.shape[:2]
+        cv2.namedWindow("Detection Result", cv2.WINDOW_NORMAL)
+        screen_scale = min(1.0, 1400 / w, 900 / h)
+        cv2.resizeWindow("Detection Result", int(w * screen_scale), int(h * screen_scale))
+        cv2.imshow("Detection Result", display)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+    else:
+        print("📺 CLI mode: preview skipped")
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
@@ -450,6 +469,10 @@ def create_argument_parser() -> argparse.ArgumentParser:
         "--nms", action="store_true",
         help="Apply additional NMS after inference to remove duplicate detections"
     )
+    parser.add_argument(
+        "--cli", action="store_true",
+        help="CLI mode: no preview window, terminal output only (faster, for headless operation)"
+    )
 
     return parser
 
@@ -519,12 +542,14 @@ def main():
     # Print banner
     print_banner(args, has_roi, use_openvino)
 
+    # Determine CLI mode
+    cli_mode = getattr(args, 'cli', False)
+
     # Run appropriate mode
     if args.image:
-        run_image_inference(args, pipeline, dirs, keypoint_processor)
+        run_image_inference(args, pipeline, dirs, keypoint_processor, cli_mode=cli_mode)
     else:
         from camera import ImageCapture
-        from visualization import Visualizer
 
         print("\n📷 Opening camera...")
         camera = ImageCapture(args.camera, CAMERA_WIDTH, CAMERA_HEIGHT)
@@ -532,13 +557,17 @@ def main():
             print("❌ Failed to open camera. Exiting.")
             return
 
-        visualizer = Visualizer()
-        visualizer.create_window(CAMERA_WIDTH, CAMERA_HEIGHT)
+        # Create visualizer only if not in CLI mode
+        visualizer = None
+        if not cli_mode:
+            from visualization import Visualizer
+            visualizer = Visualizer()
+            visualizer.create_window(CAMERA_WIDTH, CAMERA_HEIGHT)
 
         if args.track:
             print("\n🔗 Tracker initialized (BoT-SORT)")
 
-        run_detection_loop(args, pipeline, camera, visualizer, dirs, keypoint_processor)
+        run_detection_loop(args, pipeline, camera, visualizer, dirs, keypoint_processor, cli_mode=cli_mode)
 
 
 if __name__ == "__main__":
