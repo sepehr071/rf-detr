@@ -16,15 +16,15 @@ CAMERA_HEIGHT = 960
 # MODEL SETTINGS
 # ============================================================================
 
-DEFAULT_CHECKPOINT = "runs/rfdetr_seg_training/checkpoint_best_ema.pth"
-DEFAULT_CONFIDENCE = 0.5
+DEFAULT_CHECKPOINT = "checkpoint_best_regular.pth"
+DEFAULT_CONFIDENCE = 0.4
 
 # ============================================================================
 # SAHI SETTINGS (Tiling for small object detection)
 # ============================================================================
 
 SAHI_OVERLAP = 0.3       # 30% overlap for better stitching
-SAHI_TILES_X = 3         # 3x2 grid (width > height after ROI crop)
+SAHI_TILES_X = 2         # 3x2 grid (width > height after ROI crop)
 SAHI_TILES_Y = 2
 MAX_IMAGE_SIZE = 1280    # Max dimension for inference resize
 VERBOSE_TILES_DIR = "verbose_tiles"  # Directory for saving tile images
@@ -33,13 +33,13 @@ VERBOSE_TILES_DIR = "verbose_tiles"  # Directory for saving tile images
 # NMS SETTINGS
 # ============================================================================
 
-NMS_IOU_THRESHOLD = 0.3  # IoU threshold for SAHI tile merging (LOWER = more aggressive)
+NMS_IOU_THRESHOLD = 0.2  # IoU threshold for SAHI tile merging (LOWER = more aggressive)
 
 # ============================================================================
 # MERGE SETTINGS (for hybrid mode: full + SAHI)
 # ============================================================================
 
-MERGE_IOU_THRESHOLD = 0.3         # IoU threshold for merging (LOWER = fewer duplicates)
+MERGE_IOU_THRESHOLD = 0.2         # IoU threshold for merging (LOWER = fewer duplicates)
 MERGE_CLASS_AGNOSTIC = True       # Ignore class labels when merging (recommended)
 MERGE_STRATEGY = "nms"            # "nms" or "nmm" (non-max merging)
 

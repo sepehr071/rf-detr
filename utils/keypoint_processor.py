@@ -90,9 +90,12 @@ class KeypointProcessor:
         Lazy-load the YOLO pose model with OpenVINO optimization.
         
         Logic:
-        1. If OpenVINO enabled and OpenVINO model exists -> load it
-        2. If OpenVINO enabled but no OpenVINO model -> export first, then load
-        3. If OpenVINO disabled -> load PyTorch model directly
+        1. If OpenVINO enabled and OpenVINO model exists -> try to load it
+        2. If OpenVINO loading fails or no model -> export first, then try to load
+        3. If OpenVINO still fails -> fallback to PyTorch model
+        4. If OpenVINO disabled -> load PyTorch model directly
+        
+        Includes a test inference to verify the model works.
         """
         if self._model is not None:
             return self._model
@@ -110,14 +113,27 @@ class KeypointProcessor:
                 
                 # Check if OpenVINO model already exists
                 if os.path.exists(openvino_model_dir) and os.path.isdir(openvino_model_dir):
-                    # OpenVINO model exists, load it directly
+                    # OpenVINO model exists, try to load it
                     print(f"[KEYPOINT] Loading OpenVINO model from {openvino_model_dir}")
-                    self._model = YOLO(openvino_model_dir)
-                    self._using_openvino = True
-                    print(f"[KEYPOINT] ✅ OpenVINO model loaded successfully")
+                    try:
+                        model = YOLO(openvino_model_dir, task='pose')
+                        # Test inference to verify model works
+                        if self._test_model(model):
+                            self._model = model
+                            self._using_openvino = True
+                            print(f"[KEYPOINT] ✅ OpenVINO model loaded and verified")
+                        else:
+                            print(f"[KEYPOINT] ⚠️ OpenVINO model test failed, using PyTorch")
+                            self._model = YOLO(self.model_path)
+                            self._using_openvino = False
+                    except Exception as e:
+                        print(f"[KEYPOINT] ⚠️ OpenVINO load failed: {e}")
+                        print(f"[KEYPOINT] Falling back to PyTorch model")
+                        self._model = YOLO(self.model_path)
+                        self._using_openvino = False
                 else:
-                    # OpenVINO model doesn't exist, export first
-                    print(f"[KEYPOINT] OpenVINO model not found, exporting...")
+                    # OpenVINO model doesn't exist, try to export
+                    print(f"[KEYPOINT] OpenVINO model not found, attempting export...")
                     self._model = self._export_and_load_openvino()
             else:
                 # Load PyTorch model directly
@@ -132,12 +148,35 @@ class KeypointProcessor:
 
         return self._model
 
+    def _test_model(self, model) -> bool:
+        """
+        Test if model can run inference successfully.
+        
+        Args:
+            model: YOLO model to test
+            
+        Returns:
+            True if inference works, False otherwise
+        """
+        try:
+            # Create a small test image (64x64 black image)
+            test_image = np.zeros((64, 64, 3), dtype=np.uint8)
+            # Run inference with verbose=False to suppress output
+            results = model(test_image, verbose=False)
+            return True
+        except Exception as e:
+            print(f"[KEYPOINT] Model test failed: {e}")
+            return False
+
     def _export_and_load_openvino(self):
         """
         Export PyTorch model to OpenVINO format and load it.
         
+        Includes verification that exported model works, with fallback
+        to PyTorch if OpenVINO fails.
+        
         Returns:
-            YOLO model loaded from OpenVINO format
+            YOLO model loaded from OpenVINO format, or PyTorch fallback
         """
         from ultralytics import YOLO
 
@@ -152,9 +191,26 @@ class KeypointProcessor:
             
             print(f"[KEYPOINT] ✅ Exported to: {export_path}")
             
-            # Load the exported OpenVINO model
-            self._using_openvino = True
-            return YOLO(export_path)
+            # Try to load the exported OpenVINO model
+            try:
+                openvino_model = YOLO(export_path, task='pose')
+                
+                # Test inference to verify model works
+                if self._test_model(openvino_model):
+                    self._using_openvino = True
+                    print(f"[KEYPOINT] ✅ OpenVINO model verified")
+                    return openvino_model
+                else:
+                    print(f"[KEYPOINT] ⚠️ OpenVINO model test failed after export")
+                    print(f"[KEYPOINT] Falling back to PyTorch model")
+                    self._using_openvino = False
+                    return pt_model  # Return the already-loaded PyTorch model
+                    
+            except Exception as load_error:
+                print(f"[KEYPOINT] ⚠️ OpenVINO load failed after export: {load_error}")
+                print(f"[KEYPOINT] Falling back to PyTorch model")
+                self._using_openvino = False
+                return pt_model  # Return the already-loaded PyTorch model
 
         except Exception as e:
             print(f"[KEYPOINT] ⚠️ OpenVINO export failed: {e}")
