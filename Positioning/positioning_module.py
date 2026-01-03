@@ -570,7 +570,8 @@ def calculate_positions_from_detections(
         wx, wy = obj['world_coords']
 
         # Normalize to 0-100 based on shelf dimensions
-        shelf_x = (wx / shelf_width) * 100
+        # X-axis is flipped (100 - x) to match camera view orientation
+        shelf_x = 100 - ((wx / shelf_width) * 100)
         shelf_y = (wy / shelf_depth) * 100
 
         # Clamp values
@@ -717,7 +718,8 @@ def calculate_positions(
         wx, wy = obj['world_coords']
 
         # Normalize to 0-100 based on shelf dimensions
-        shelf_x = (wx / shelf_width) * 100
+        # X-axis is flipped (100 - x) to match camera view orientation
+        shelf_x = 100 - ((wx / shelf_width) * 100)
         shelf_y = (wy / shelf_depth) * 100
 
         # Clamp values
