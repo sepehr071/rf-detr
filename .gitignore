@@ -5,4 +5,4 @@
 /pos2rf-detr.rar
 /position-rf-detr.zip
 /__pycache__
-utils\__pycache__
+utils/__pycache__/*
