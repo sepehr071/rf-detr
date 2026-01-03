@@ -192,7 +192,17 @@ DISPLAY_KEY_WAIT_MS = 1
 # ============================================================================
 
 KEYPOINT_MODEL_PATH = "checkpoints/best.pt"
+KEYPOINT_OPENVINO_PATH = "checkpoints/best_openvino_model"  # Auto-generated OpenVINO model
 KEYPOINT_CROP_MARGIN = 20              # Pixels of margin around bbox when cropping
 KEYPOINT_TEMP_DIR = "temp_crops"       # Directory for temporary crop files
 KEYPOINT_BIG_OBJECT_CLASSES = {1, 4}   # DS_b_330_4pa, HN_b_330_6pa
 KEYPOINT_MIN_CONFIDENCE = 0.5          # Minimum keypoint confidence
+
+# ============================================================================
+# OPENVINO SETTINGS
+# ============================================================================
+
+# OpenVINO is enabled by default for better performance
+# If OpenVINO model doesn't exist, it will be auto-exported from PyTorch model
+OPENVINO_ENABLED = True                # Enable OpenVINO optimization by default
+OPENVINO_DEVICE = "CPU"                # Device for OpenVINO inference (CPU, GPU, AUTO)

@@ -80,14 +80,14 @@ def setup_directories(args) -> dict:
     return dirs
 
 
-def print_banner(args, has_roi: bool):
+def print_banner(args, has_roi: bool, use_openvino: bool):
     """Print startup configuration banner."""
     print("=" * 60)
     print("RF-DETR DETECTION SYSTEM")
     print("=" * 60)
     print(f"Mode: {args.mode.upper()}")
     print(f"Confidence: {args.conf}")
-    print(f"OpenVINO: {'Yes' if args.openvino else 'No'}")
+    print(f"OpenVINO: {'Yes' if use_openvino else 'No (disabled)'}")
     if not args.image:
         print(f"Camera: {args.camera} ({CAMERA_WIDTH}x{CAMERA_HEIGHT})")
     else:
@@ -403,8 +403,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help="Confidence threshold (0.0-1.0)"
     )
     parser.add_argument(
-        "--openvino", action="store_true",
-        help="Enable OpenVINO optimization for Intel CPU"
+        "--no-openvino", action="store_true",
+        help="Disable OpenVINO optimization (OpenVINO is enabled by default)"
     )
     parser.add_argument(
         "--camera", type=int, default=CAMERA_INDEX,
@@ -485,11 +485,14 @@ def main():
         tiles_dir=dirs.get('tiles')
     )
 
+    # Determine OpenVINO usage (enabled by default, disabled with --no-openvino)
+    use_openvino = not getattr(args, 'no_openvino', False)
+
     # Create pipeline
     print("\n📦 Loading model...")
     pipeline = create_pipeline(
         checkpoint_path=args.checkpoint,
-        use_openvino=args.openvino,
+        use_openvino=use_openvino,
         config=config
     )
 
@@ -497,7 +500,10 @@ def main():
     keypoint_processor = None
     if args.positioning or args.web or args.mqtt:
         from utils.keypoint_processor import KeypointProcessor
-        keypoint_processor = KeypointProcessor(save_debug_crops=args.verbose)
+        keypoint_processor = KeypointProcessor(
+            use_openvino=use_openvino,
+            save_debug_crops=args.verbose
+        )
         print("🔑 Keypoint processor initialized for rotation detection")
         if args.verbose:
             print("   Debug crops will be saved to debug_crops/ directory")
@@ -511,7 +517,7 @@ def main():
             return
 
     # Print banner
-    print_banner(args, has_roi)
+    print_banner(args, has_roi, use_openvino)
 
     # Run appropriate mode
     if args.image:

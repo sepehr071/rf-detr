@@ -18,7 +18,8 @@ from config import (
     POST_NMS_THRESHOLD,
     POST_NMS_CLASS_AGNOSTIC,
     MAX_IMAGE_SIZE,
-    VERBOSE_TILES_DIR
+    VERBOSE_TILES_DIR,
+    OPENVINO_ENABLED,
 )
 
 
@@ -220,7 +221,7 @@ class InferencePipeline:
 
 def create_pipeline(
     checkpoint_path: str = DEFAULT_CHECKPOINT,
-    use_openvino: bool = False,
+    use_openvino: bool = OPENVINO_ENABLED,  # Default: True (from config)
     roi_config_file: str = ROI_CONFIG_FILE,
     load_roi: bool = True,
     config: Optional[PipelineConfig] = None
@@ -228,9 +229,11 @@ def create_pipeline(
     """
     Factory function to create a fully configured pipeline.
 
+    OpenVINO optimization is enabled by default for better performance.
+
     Args:
         checkpoint_path: Path to model checkpoint
-        use_openvino: Whether to use OpenVINO optimization
+        use_openvino: Whether to use OpenVINO optimization (default: True)
         roi_config_file: Path to ROI config file
         load_roi: Whether to load ROI (set False to skip)
         config: Pipeline configuration
@@ -241,7 +244,7 @@ def create_pipeline(
     from model import DetectionModel
     from roi import ROIManager
 
-    # Load model
+    # Load model (OpenVINO enabled by default)
     model = DetectionModel(checkpoint_path, use_openvino)
 
     # Load ROI

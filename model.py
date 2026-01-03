@@ -24,7 +24,8 @@ from config import (
     MERGE_CLASS_AGNOSTIC,
     MERGE_STRATEGY,
     CLASS_REMAP,
-    FILTER_OTHER_CLASS
+    FILTER_OTHER_CLASS,
+    OPENVINO_ENABLED,
 )
 from nms import class_aware_nms, non_max_merge
 
@@ -34,48 +35,66 @@ class DetectionModel:
     RF-DETR-Seg model wrapper for inference.
     
     Supports both full-frame and SAHI tiled inference modes.
+    
+    OpenVINO optimization is enabled by default for better performance.
+    The rfdetr library provides in-memory optimization via optimize_for_inference().
     """
     
     def __init__(
         self,
         checkpoint_path: str = DEFAULT_CHECKPOINT,
-        use_openvino: bool = False
+        use_openvino: bool = OPENVINO_ENABLED  # Default: True (from config)
     ):
         """
         Initialize and load the detection model.
         
         Args:
             checkpoint_path: Path to model checkpoint file
-            use_openvino: Whether to apply OpenVINO optimization
+            use_openvino: Whether to apply OpenVINO optimization (default: True)
         """
         self.checkpoint_path = checkpoint_path
         self.use_openvino = use_openvino
         self.model = None
+        self._openvino_applied = False
         
         self._load_model()
     
     def _load_model(self):
-        """Load the RF-DETR-Seg model."""
+        """Load the RF-DETR-Seg model with optional OpenVINO optimization."""
         from rfdetr import RFDETRSegPreview
         
         if not os.path.exists(self.checkpoint_path):
             raise FileNotFoundError(f"Checkpoint not found: {self.checkpoint_path}")
         
-        print(f"Loading model from: {self.checkpoint_path}")
+        print(f"Loading RF-DETR model from: {self.checkpoint_path}")
         self.model = RFDETRSegPreview(pretrain_weights=self.checkpoint_path)
         
+        # Apply OpenVINO optimization by default
         if self.use_openvino:
             self._apply_openvino()
+        else:
+            print("⚠️ OpenVINO disabled - using PyTorch backend")
     
     def _apply_openvino(self):
-        """Apply OpenVINO optimization."""
-        print("Optimizing model for Intel CPU with OpenVINO...")
+        """Apply OpenVINO in-memory optimization for faster CPU inference."""
+        print("🚀 Applying OpenVINO optimization for Intel CPU...")
         try:
             self.model.optimize_for_inference()
-            print("✅ OpenVINO optimization applied")
+            self._openvino_applied = True
+            print("✅ OpenVINO optimization applied successfully")
         except Exception as e:
             print(f"⚠️ OpenVINO optimization failed: {e}")
-            print("Continuing without optimization...")
+            print("Continuing with PyTorch backend...")
+            self._openvino_applied = False
+    
+    def get_model_info(self) -> dict:
+        """Get information about the loaded model."""
+        return {
+            'checkpoint_path': self.checkpoint_path,
+            'openvino_enabled': self.use_openvino,
+            'openvino_applied': self._openvino_applied,
+            'model_loaded': self.model is not None,
+        }
     
     def predict(
         self,

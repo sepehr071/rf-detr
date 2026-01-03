@@ -9,11 +9,14 @@ Flow:
 3. Run YOLO pose model to detect 4-corner keypoints
 4. Calculate rotation angle from keypoints
 5. Return angle_map: {bbox_id: angle}
+
+Performance optimizations:
+- Direct array inference (no file I/O)
+- OpenVINO auto-export/load for faster inference
 """
 
 import os
 import math
-import time
 import numpy as np
 import cv2
 from typing import Dict, List, Tuple, Optional
@@ -21,10 +24,11 @@ from dataclasses import dataclass
 
 from config import (
     KEYPOINT_MODEL_PATH,
+    KEYPOINT_OPENVINO_PATH,
     KEYPOINT_CROP_MARGIN,
-    KEYPOINT_TEMP_DIR,
     KEYPOINT_BIG_OBJECT_CLASSES,
     KEYPOINT_MIN_CONFIDENCE,
+    OPENVINO_ENABLED,
 )
 
 
@@ -41,51 +45,122 @@ class KeypointProcessor:
     """
     Processes detections to extract keypoints and calculate rotation angles
     for big objects (multipacks).
+    
+    OpenVINO optimization:
+    - If OpenVINO model exists, loads it directly
+    - If not, exports PyTorch model to OpenVINO format first
+    - This happens automatically on first load
     """
 
     def __init__(
         self,
         model_path: str = KEYPOINT_MODEL_PATH,
+        openvino_path: str = KEYPOINT_OPENVINO_PATH,
         margin: int = KEYPOINT_CROP_MARGIN,
-        temp_dir: str = KEYPOINT_TEMP_DIR,
         big_object_classes: set = None,
         min_confidence: float = KEYPOINT_MIN_CONFIDENCE,
+        use_openvino: bool = OPENVINO_ENABLED,
         save_debug_crops: bool = False,
     ):
         """
         Initialize the keypoint processor.
 
         Args:
-            model_path: Path to YOLO pose model checkpoint
+            model_path: Path to YOLO pose model checkpoint (.pt)
+            openvino_path: Path for OpenVINO model (auto-generated)
             margin: Pixels of margin around bbox when cropping
-            temp_dir: Directory for temporary crop files
             big_object_classes: Set of class IDs to process (default: {1, 4})
             min_confidence: Minimum keypoint confidence threshold
+            use_openvino: Use OpenVINO for faster inference (default: True)
             save_debug_crops: Save cropped images to debug_crops/ for debugging
         """
         self.model_path = model_path
+        self.openvino_path = openvino_path
         self.margin = margin
-        self.temp_dir = temp_dir
         self.big_object_classes = big_object_classes or KEYPOINT_BIG_OBJECT_CLASSES
         self.min_confidence = min_confidence
+        self.use_openvino = use_openvino
         self.save_debug_crops = save_debug_crops
         self._model = None  # Lazy-loaded
         self._crop_counter = 0
+        self._using_openvino = False
 
     def _get_model(self):
-        """Lazy-load the YOLO pose model."""
-        if self._model is None:
-            if not os.path.exists(self.model_path):
-                print(f"[KEYPOINT] Warning: Model not found at {self.model_path}")
-                return None
-            try:
-                from ultralytics import YOLO
+        """
+        Lazy-load the YOLO pose model with OpenVINO optimization.
+        
+        Logic:
+        1. If OpenVINO enabled and OpenVINO model exists -> load it
+        2. If OpenVINO enabled but no OpenVINO model -> export first, then load
+        3. If OpenVINO disabled -> load PyTorch model directly
+        """
+        if self._model is not None:
+            return self._model
+
+        if not os.path.exists(self.model_path):
+            print(f"[KEYPOINT] Warning: Model not found at {self.model_path}")
+            return None
+
+        try:
+            from ultralytics import YOLO
+
+            # Check if we should use OpenVINO
+            if self.use_openvino:
+                openvino_model_dir = self.openvino_path
+                
+                # Check if OpenVINO model already exists
+                if os.path.exists(openvino_model_dir) and os.path.isdir(openvino_model_dir):
+                    # OpenVINO model exists, load it directly
+                    print(f"[KEYPOINT] Loading OpenVINO model from {openvino_model_dir}")
+                    self._model = YOLO(openvino_model_dir)
+                    self._using_openvino = True
+                    print(f"[KEYPOINT] ✅ OpenVINO model loaded successfully")
+                else:
+                    # OpenVINO model doesn't exist, export first
+                    print(f"[KEYPOINT] OpenVINO model not found, exporting...")
+                    self._model = self._export_and_load_openvino()
+            else:
+                # Load PyTorch model directly
+                print(f"[KEYPOINT] Loading PyTorch model from {self.model_path}")
                 self._model = YOLO(self.model_path)
-                print(f"[KEYPOINT] Loaded pose model from {self.model_path}")
-            except Exception as e:
-                print(f"[KEYPOINT] Error loading model: {e}")
-                return None
+                self._using_openvino = False
+                print(f"[KEYPOINT] ✅ PyTorch model loaded")
+
+        except Exception as e:
+            print(f"[KEYPOINT] Error loading model: {e}")
+            return None
+
         return self._model
+
+    def _export_and_load_openvino(self):
+        """
+        Export PyTorch model to OpenVINO format and load it.
+        
+        Returns:
+            YOLO model loaded from OpenVINO format
+        """
+        from ultralytics import YOLO
+
+        try:
+            # Load PyTorch model first
+            print(f"[KEYPOINT] Loading PyTorch model for export: {self.model_path}")
+            pt_model = YOLO(self.model_path)
+
+            # Export to OpenVINO format
+            print(f"[KEYPOINT] Exporting to OpenVINO format...")
+            export_path = pt_model.export(format='openvino')
+            
+            print(f"[KEYPOINT] ✅ Exported to: {export_path}")
+            
+            # Load the exported OpenVINO model
+            self._using_openvino = True
+            return YOLO(export_path)
+
+        except Exception as e:
+            print(f"[KEYPOINT] ⚠️ OpenVINO export failed: {e}")
+            print(f"[KEYPOINT] Falling back to PyTorch model")
+            self._using_openvino = False
+            return YOLO(self.model_path)
 
     def process(
         self,
@@ -120,13 +195,11 @@ class KeypointProcessor:
         big_objects = self._filter_big_objects(detections)
 
         if debug and big_objects:
-            print(f"[KEYPOINT] Found {len(big_objects)} big objects (class_id in {self.big_object_classes})")
+            openvino_status = "OpenVINO" if self._using_openvino else "PyTorch"
+            print(f"[KEYPOINT] Found {len(big_objects)} big objects (class_id in {self.big_object_classes}) [{openvino_status}]")
 
         if not big_objects:
             return angle_map
-
-        # Ensure temp directory exists
-        os.makedirs(self.temp_dir, exist_ok=True)
 
         # Process each big object
         for idx, bbox, class_id in big_objects:
@@ -150,7 +223,7 @@ class KeypointProcessor:
                 cv2.imwrite(debug_path, cropped)
                 print(f"[KEYPOINT] Saved debug crop: {debug_path} ({cropped.shape[1]}x{cropped.shape[0]})")
 
-            # Run keypoint inference
+            # Run keypoint inference (direct array - no file I/O!)
             kp_result = self._run_keypoint_inference(cropped)
 
             if kp_result and len(kp_result.get('keypoints', [])) >= 4:
@@ -219,10 +292,12 @@ class KeypointProcessor:
 
     def _run_keypoint_inference(self, cropped: np.ndarray) -> Optional[dict]:
         """
-        Run YOLO pose inference using file-based approach.
+        Run YOLO pose inference using direct array input (no file I/O).
+        
+        This is much faster than the previous file-based approach.
 
         Args:
-            cropped: BGR cropped image
+            cropped: BGR cropped image (numpy array)
 
         Returns:
             Dict with 'keypoints' and 'keypoint_confidences', or None
@@ -231,14 +306,10 @@ class KeypointProcessor:
         if model is None:
             return None
 
-        # Save to temp file
-        temp_path = os.path.join(self.temp_dir, f"crop_{time.time_ns()}.jpg")
-
         try:
-            cv2.imwrite(temp_path, cropped)
-
-            # Run inference
-            results = model(temp_path, verbose=False)
+            # Direct array inference - no file I/O needed!
+            # YOLO accepts numpy arrays directly
+            results = model(cropped, verbose=False)
 
             # Parse results
             if results and len(results) > 0:
@@ -254,13 +325,6 @@ class KeypointProcessor:
                         }
         except Exception as e:
             print(f"[KEYPOINT] Inference error: {e}")
-        finally:
-            # Clean up temp file
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
 
         return None
 
@@ -355,11 +419,15 @@ class KeypointProcessor:
         return f"{int(round(x1))}_{int(round(y1))}_{int(round(x2))}_{int(round(y2))}"
 
     def cleanup(self):
-        """Clean up temporary files and resources."""
-        if os.path.exists(self.temp_dir):
-            try:
-                for f in os.listdir(self.temp_dir):
-                    if f.startswith("crop_") and f.endswith(".jpg"):
-                        os.remove(os.path.join(self.temp_dir, f))
-            except Exception:
-                pass
+        """Clean up resources."""
+        # No temp files to clean up anymore (direct array inference)
+        pass
+
+    def get_model_info(self) -> dict:
+        """Get information about the loaded model."""
+        return {
+            'model_path': self.model_path,
+            'openvino_path': self.openvino_path,
+            'using_openvino': self._using_openvino,
+            'model_loaded': self._model is not None,
+        }
