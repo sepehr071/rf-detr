@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RF-DETR Detection System - Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="header-left">
+                <h1><span>RF-DETR</span> Detection System Guide</h1>
+                <nav class="nav">
+                    <a href="index.html" class="active">Overview</a>
+                    <a href="runner.html" class="tech-only">Runner</a>
+                    <a href="pipeline.html" class="tech-only">Pipeline</a>
+                    <a href="model.html" class="tech-only">Model</a>
+                    <a href="camera.html" class="tech-only">Camera</a>
+                    <a href="visualization.html" class="tech-only">Visualization</a>
+                </nav>
+            </div>
+            <div class="mode-toggle">
+                <span class="mode-toggle-label" id="label-simple">Simple</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="mode-toggle" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="mode-toggle-label active" id="label-tech">Technical</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="page-title">
+            <h2 class="tech-only">System Overview</h2>
+            <p class="tech-only">High-level architecture of the RF-DETR bottle detection system</p>
+            <h2 class="simple-only">How It Works</h2>
+            <p class="simple-only">A simple guide to how the bottle detection system works</p>
+        </div>
+
+        <!-- ==================== SIMPLE MODE CONTENT ==================== -->
+        <div class="simple-only">
+            <div class="diagram-container">
+                <div class="diagram-title">Detection Flow</div>
+                <div class="simple-flow">
+                    <div class="simple-step">
+                        <div class="simple-step-icon">📷</div>
+                        <div class="simple-step-content">
+                            <h4>1. Capture Image</h4>
+                            <p>Take a picture from the camera or load an image file</p>
+                        </div>
+                    </div>
+                    <div class="simple-step-connector"></div>
+
+                    <div class="simple-step">
+                        <div class="simple-step-icon">✂️</div>
+                        <div class="simple-step-content">
+                            <h4>2. Focus on Shelf Area</h4>
+                            <p>Crop the image to show only the shelf region</p>
+                        </div>
+                    </div>
+                    <div class="simple-step-connector"></div>
+
+                    <div class="simple-step">
+                        <div class="simple-step-icon">🔍</div>
+                        <div class="simple-step-content">
+                            <h4>3. Find Products</h4>
+                            <p>AI scans the image to find all bottles and products</p>
+                        </div>
+                    </div>
+                    <div class="simple-step-connector"></div>
+
+                    <div class="simple-step">
+                        <div class="simple-step-icon">🏷️</div>
+                        <div class="simple-step-content">
+                            <h4>4. Identify Products</h4>
+                            <p>Recognize what type each product is (brand, size, etc.)</p>
+                        </div>
+                    </div>
+                    <div class="simple-step-connector"></div>
+
+                    <div class="simple-step">
+                        <div class="simple-step-icon">📍</div>
+                        <div class="simple-step-content">
+                            <h4>5. Calculate Positions</h4>
+                            <p>Figure out where each product is located on the shelf</p>
+                        </div>
+                    </div>
+                    <div class="simple-step-connector"></div>
+
+                    <div class="simple-step">
+                        <div class="simple-step-icon">📐</div>
+                        <div class="simple-step-content">
+                            <h4>6. Check Orientation</h4>
+                            <p>Detect if products are rotated or tilted</p>
+                        </div>
+                    </div>
+                    <div class="simple-step-connector"></div>
+
+                    <div class="simple-step">
+                        <div class="simple-step-icon">📡</div>
+                        <div class="simple-step-content">
+                            <h4>7. Send Results</h4>
+                            <p>Send the information to the server</p>
+                        </div>
+                    </div>
+                    <div class="simple-step-connector"></div>
+
+                    <div class="simple-step">
+                        <div class="simple-step-icon">🖥️</div>
+                        <div class="simple-step-content">
+                            <h4>8. Display Results</h4>
+                            <p>Show the detected products on screen with labels</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Simple explanation cards -->
+            <div class="simple-section">
+                <div class="simple-section-icon">🎯</div>
+                <h3>What Does It Do?</h3>
+                <p>This system automatically detects bottles and products on store shelves using a camera. It identifies each product type and tracks their positions in real-time.</p>
+            </div>
+
+            <div class="simple-section">
+                <div class="simple-section-icon">🤖</div>
+                <h3>How Does It Work?</h3>
+                <p>An AI model analyzes camera images to find and classify products. It works continuously, processing each frame to keep track of what's on the shelf.</p>
+            </div>
+
+            <div class="simple-section">
+                <div class="simple-section-icon">📊</div>
+                <h3>What Information Does It Provide?</h3>
+                <p>For each product found: the type/brand, its position on the shelf, and whether it's properly oriented. This data is sent to a central server for monitoring.</p>
+            </div>
+        </div>
+
+        <!-- ==================== TECHNICAL MODE CONTENT ==================== -->
+
+        <!-- Main Flow Diagram -->
+        <div class="diagram-container tech-only">
+            <div class="diagram-title">Main Flow</div>
+            <div class="diagram">
+                <svg width="900" height="500" viewBox="0 0 900 500">
+                    <!-- Arrow marker definition -->
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#808080"/>
+                        </marker>
+                        <marker id="arrowhead-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#569cd6"/>
+                        </marker>
+                    </defs>
+
+                    <!-- Entry Point: main.py -->
+                    <g class="clickable" onclick="location.href='runner.html'">
+                        <rect class="diagram-box" x="380" y="20" width="140" height="50" rx="6"/>
+                        <text class="diagram-text" x="450" y="50" text-anchor="middle">main.py</text>
+                    </g>
+
+                    <!-- Arrow to runner -->
+                    <path class="diagram-arrow" d="M450 70 L450 100"/>
+
+                    <!-- Runner Box -->
+                    <g class="clickable" onclick="location.href='runner.html'">
+                        <rect class="diagram-box highlight" x="350" y="100" width="200" height="60" rx="6"/>
+                        <text class="diagram-text" x="450" y="125" text-anchor="middle">runner.py</text>
+                        <text class="diagram-text-small" x="450" y="145" text-anchor="middle">DetectionRunner</text>
+                    </g>
+
+                    <!-- Arrow from runner to components -->
+                    <path class="diagram-arrow" d="M450 160 L450 200"/>
+
+                    <!-- Horizontal line for branching -->
+                    <path class="diagram-arrow" d="M100 200 L800 200"/>
+
+                    <!-- Vertical arrows to components -->
+                    <path class="diagram-arrow" d="M150 200 L150 250"/>
+                    <path class="diagram-arrow" d="M300 200 L300 250"/>
+                    <path class="diagram-arrow" d="M450 200 L450 250"/>
+                    <path class="diagram-arrow" d="M600 200 L600 250"/>
+                    <path class="diagram-arrow" d="M750 200 L750 250"/>
+
+                    <!-- Component: pipeline.py -->
+                    <g class="clickable" onclick="location.href='pipeline.html'">
+                        <rect class="diagram-box" x="75" y="250" width="150" height="80" rx="6"/>
+                        <text class="diagram-text" x="150" y="280" text-anchor="middle">pipeline.py</text>
+                        <text class="diagram-text-small" x="150" y="300" text-anchor="middle">InferencePipeline</text>
+                        <text class="diagram-text-small" x="150" y="315" text-anchor="middle" fill="#4ec9b0">Core Logic</text>
+                    </g>
+
+                    <!-- Component: camera.py -->
+                    <g class="clickable" onclick="location.href='camera.html'">
+                        <rect class="diagram-box" x="225" y="250" width="150" height="80" rx="6"/>
+                        <text class="diagram-text" x="300" y="280" text-anchor="middle">camera.py</text>
+                        <text class="diagram-text-small" x="300" y="300" text-anchor="middle">ImageCapture</text>
+                        <text class="diagram-text-small" x="300" y="315" text-anchor="middle" fill="#4ec9b0">Input</text>
+                    </g>
+
+                    <!-- Component: visualization.py -->
+                    <g class="clickable" onclick="location.href='visualization.html'">
+                        <rect class="diagram-box" x="375" y="250" width="150" height="80" rx="6"/>
+                        <text class="diagram-text" x="450" y="280" text-anchor="middle">visualization.py</text>
+                        <text class="diagram-text-small" x="450" y="300" text-anchor="middle">Visualizer</text>
+                        <text class="diagram-text-small" x="450" y="315" text-anchor="middle" fill="#4ec9b0">Display</text>
+                    </g>
+
+                    <!-- Component: positioning -->
+                    <g class="clickable" onclick="location.href='positioning.html'">
+                        <rect class="diagram-box" x="525" y="250" width="150" height="80" rx="6"/>
+                        <text class="diagram-text" x="600" y="280" text-anchor="middle">Positioning/</text>
+                        <text class="diagram-text-small" x="600" y="300" text-anchor="middle">calculate_positions</text>
+                        <text class="diagram-text-small" x="600" y="315" text-anchor="middle" fill="#4ec9b0">Output</text>
+                    </g>
+
+                    <!-- Component: network -->
+                    <g class="clickable" onclick="location.href='network.html'">
+                        <rect class="diagram-box" x="675" y="250" width="150" height="80" rx="6"/>
+                        <text class="diagram-text" x="750" y="280" text-anchor="middle">network_publish</text>
+                        <text class="diagram-text-small" x="750" y="300" text-anchor="middle">MQTT / HTTP</text>
+                        <text class="diagram-text-small" x="750" y="315" text-anchor="middle" fill="#4ec9b0">Publish</text>
+                    </g>
+
+                    <!-- Pipeline internals arrow -->
+                    <path class="diagram-arrow" d="M150 330 L150 370"/>
+
+                    <!-- Pipeline sub-components -->
+                    <g class="clickable" onclick="location.href='model.html'">
+                        <rect class="diagram-box" x="50" y="370" width="100" height="50" rx="6"/>
+                        <text class="diagram-text-small" x="100" y="395" text-anchor="middle">model.py</text>
+                        <text class="diagram-text-small" x="100" y="410" text-anchor="middle" fill="#808080">RF-DETR</text>
+                    </g>
+
+                    <g class="clickable" onclick="location.href='preprocessing.html'">
+                        <rect class="diagram-box" x="160" y="370" width="100" height="50" rx="6"/>
+                        <text class="diagram-text-small" x="210" y="395" text-anchor="middle">preprocess</text>
+                        <text class="diagram-text-small" x="210" y="410" text-anchor="middle" fill="#808080">ROI/Resize</text>
+                    </g>
+
+                    <!-- Horizontal connector for pipeline internals -->
+                    <path class="diagram-arrow" d="M100 370 L210 370" style="stroke-dasharray: 4"/>
+
+                    <!-- Legend -->
+                    <g transform="translate(50, 450)">
+                        <text fill="#808080" font-size="12">Click any component to see details</text>
+                    </g>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Quick Start -->
+        <div class="section tech-only">
+            <h3>Quick Start</h3>
+            <div class="code-block">
+<span class="comment"># Camera mode (default)</span>
+python main.py
+
+<span class="comment"># Single image</span>
+python main.py --image photo.jpg
+
+<span class="comment"># With tracking</span>
+python main.py --track
+
+<span class="comment"># Headless mode</span>
+python main.py --cli
+            </div>
+        </div>
+
+        <!-- Component Overview -->
+        <div class="section tech-only">
+            <h3>Components</h3>
+            <div class="component-grid">
+                <a href="runner.html" class="component-card">
+                    <h4>runner.py</h4>
+                    <p>DetectionRunner orchestrates setup, camera loop, image inference, and cleanup</p>
+                </a>
+                <a href="pipeline.html" class="component-card">
+                    <h4>pipeline.py</h4>
+                    <p>Unified inference pipeline: preprocess, infer, post-process</p>
+                </a>
+                <a href="model.html" class="component-card">
+                    <h4>model.py</h4>
+                    <p>RF-DETR-Seg model with full, SAHI, and hybrid modes</p>
+                </a>
+                <a href="camera.html" class="component-card">
+                    <h4>camera.py</h4>
+                    <p>Camera capture and image loading</p>
+                </a>
+                <a href="visualization.html" class="component-card">
+                    <h4>visualization.py</h4>
+                    <p>Draw detections, summary panel, and handle display</p>
+                </a>
+                <a href="preprocessing.html" class="component-card">
+                    <h4>preprocessing.py</h4>
+                    <p>Frame resize, ROI crop, mask application</p>
+                </a>
+                <a href="positioning.html" class="component-card">
+                    <h4>Positioning/</h4>
+                    <p>Calculate shelf positions from detections</p>
+                </a>
+                <a href="network.html" class="component-card">
+                    <h4>network_publish.py</h4>
+                    <p>MQTT and HTTP publishing</p>
+                </a>
+            </div>
+        </div>
+
+        <!-- File Structure -->
+        <div class="section tech-only">
+            <h3>File Structure</h3>
+            <div class="code-block">
+rf-detr/
+├── main.py              <span class="comment"># Entry point (56 lines)</span>
+├── cli.py               <span class="comment"># CLI argument parsing</span>
+├── runner.py            <span class="comment"># DetectionRunner orchestrator</span>
+├── pipeline.py          <span class="comment"># Inference pipeline</span>
+├── model.py             <span class="comment"># RF-DETR model</span>
+├── camera.py            <span class="comment"># Camera/image capture</span>
+├── visualization.py     <span class="comment"># Drawing & display</span>
+├── roi.py               <span class="comment"># Region of interest</span>
+├── tracker.py           <span class="comment"># Object tracking</span>
+├── config.py            <span class="comment"># Configuration</span>
+│
+├── utils/
+│   ├── preprocessing.py <span class="comment"># Frame preprocessing</span>
+│   ├── label_io.py      <span class="comment"># Label file I/O</span>
+│   ├── network_publish.py <span class="comment"># MQTT/HTTP</span>
+│   └── keypoint_processor.py <span class="comment"># Rotation detection</span>
+│
+└── Positioning/
+    └── positioning_module.py <span class="comment"># Position calculation</span>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <span class="tech-only">RF-DETR Detection System Guide | Click components to explore</span>
+        <span class="simple-only">RF-DETR Detection System | Bottle Detection Made Simple</span>
+    </footer>
+
+    <style>
+        .clickable { cursor: pointer; }
+        .clickable:hover rect { fill: #3a3a3a; stroke: #569cd6; }
+    </style>
+
+    <script>
+        // Mode toggle functionality
+        const toggle = document.getElementById('mode-toggle');
+        const labelSimple = document.getElementById('label-simple');
+        const labelTech = document.getElementById('label-tech');
+
+        // Load saved preference
+        const savedMode = localStorage.getItem('guideMode');
+        if (savedMode === 'simple') {
+            toggle.checked = false;
+            document.body.classList.add('simple-mode');
+            labelSimple.classList.add('active');
+            labelTech.classList.remove('active');
+        }
+
+        toggle.addEventListener('change', function() {
+            if (this.checked) {
+                // Technical mode
+                document.body.classList.remove('simple-mode');
+                labelTech.classList.add('active');
+                labelSimple.classList.remove('active');
+                localStorage.setItem('guideMode', 'technical');
+            } else {
+                // Simple mode
+                document.body.classList.add('simple-mode');
+                labelSimple.classList.add('active');
+                labelTech.classList.remove('active');
+                localStorage.setItem('guideMode', 'simple');
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model - RF-DETR Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1><span>RF-DETR</span> Detection System Guide</h1>
+        <nav class="nav">
+            <a href="index.html">Overview</a>
+            <a href="runner.html">Runner</a>
+            <a href="pipeline.html">Pipeline</a>
+            <a href="model.html" class="active">Model</a>
+            <a href="camera.html">Camera</a>
+            <a href="visualization.html">Visualization</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Home</a> <span>/</span> <span>model.py</span>
+        </div>
+
+        <div class="page-title">
+            <h2>DetectionModel</h2>
+            <p>RF-DETR-Seg model with full, SAHI, and hybrid inference modes</p>
+        </div>
+
+        <!-- SAHI Diagram -->
+        <div class="diagram-container">
+            <div class="diagram-title">SAHI Tiling (3x2 Grid with 30% Overlap)</div>
+            <div class="diagram">
+                <svg width="600" height="350" viewBox="0 0 600 350">
+                    <!-- Frame outline -->
+                    <rect x="50" y="50" width="360" height="240" fill="none" stroke="#3c3c3c" stroke-width="2"/>
+
+                    <!-- Tile grid with overlap visualization -->
+                    <rect x="50" y="50" width="140" height="140" fill="#2d2d2d" stroke="#569cd6" stroke-width="1" opacity="0.8"/>
+                    <rect x="135" y="50" width="140" height="140" fill="#2d2d2d" stroke="#569cd6" stroke-width="1" opacity="0.8"/>
+                    <rect x="220" y="50" width="140" height="140" fill="#2d2d2d" stroke="#569cd6" stroke-width="1" opacity="0.8"/>
+
+                    <rect x="50" y="130" width="140" height="140" fill="#2d2d2d" stroke="#4ec9b0" stroke-width="1" opacity="0.8"/>
+                    <rect x="135" y="130" width="140" height="140" fill="#2d2d2d" stroke="#4ec9b0" stroke-width="1" opacity="0.8"/>
+                    <rect x="220" y="130" width="140" height="140" fill="#2d2d2d" stroke="#4ec9b0" stroke-width="1" opacity="0.8"/>
+
+                    <!-- Labels -->
+                    <text x="120" y="120" text-anchor="middle" fill="#569cd6" font-size="12">Tile 0,0</text>
+                    <text x="205" y="120" text-anchor="middle" fill="#569cd6" font-size="12">Tile 0,1</text>
+                    <text x="290" y="120" text-anchor="middle" fill="#569cd6" font-size="12">Tile 0,2</text>
+                    <text x="120" y="200" text-anchor="middle" fill="#4ec9b0" font-size="12">Tile 1,0</text>
+                    <text x="205" y="200" text-anchor="middle" fill="#4ec9b0" font-size="12">Tile 1,1</text>
+                    <text x="290" y="200" text-anchor="middle" fill="#4ec9b0" font-size="12">Tile 1,2</text>
+
+                    <!-- Overlap indicator -->
+                    <text x="230" y="320" text-anchor="middle" fill="#808080" font-size="11">Overlapping regions merged with NMS</text>
+
+                    <!-- Right side: Flow -->
+                    <text x="500" y="80" text-anchor="middle" fill="#d4d4d4" font-size="14">Flow:</text>
+
+                    <rect x="450" y="100" width="100" height="30" fill="#2d2d2d" stroke="#3c3c3c" rx="4"/>
+                    <text x="500" y="120" text-anchor="middle" fill="#d4d4d4" font-size="11">Split tiles</text>
+
+                    <path d="M500 130 L500 150" stroke="#808080" stroke-width="1" marker-end="url(#arrowhead)"/>
+
+                    <rect x="450" y="155" width="100" height="30" fill="#2d2d2d" stroke="#3c3c3c" rx="4"/>
+                    <text x="500" y="175" text-anchor="middle" fill="#d4d4d4" font-size="11">Infer each</text>
+
+                    <path d="M500 185 L500 205" stroke="#808080" stroke-width="1" marker-end="url(#arrowhead)"/>
+
+                    <rect x="450" y="210" width="100" height="30" fill="#2d2d2d" stroke="#3c3c3c" rx="4"/>
+                    <text x="500" y="230" text-anchor="middle" fill="#d4d4d4" font-size="11">Offset coords</text>
+
+                    <path d="M500 240 L500 260" stroke="#808080" stroke-width="1" marker-end="url(#arrowhead)"/>
+
+                    <rect x="450" y="265" width="100" height="30" fill="#2d2d2d" stroke="#569cd6" rx="4"/>
+                    <text x="500" y="285" text-anchor="middle" fill="#d4d4d4" font-size="11">Merge NMS</text>
+
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#808080"/>
+                        </marker>
+                    </defs>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Inference Modes -->
+        <div class="section">
+            <h3>Inference Modes</h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Mode</th>
+                            <th>Method</th>
+                            <th>Speed</th>
+                            <th>Small Objects</th>
+                            <th>Large Objects</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>--mode full</code></td>
+                            <td>predict()</td>
+                            <td style="color: #4caf50;">Fastest</td>
+                            <td style="color: #ce9178;">May miss</td>
+                            <td style="color: #4caf50;">Good</td>
+                        </tr>
+                        <tr>
+                            <td><code>--mode sahi</code></td>
+                            <td>predict_sahi()</td>
+                            <td style="color: #ce9178;">Medium</td>
+                            <td style="color: #4caf50;">Best</td>
+                            <td style="color: #ce9178;">May split</td>
+                        </tr>
+                        <tr>
+                            <td><code>--mode hybrid</code></td>
+                            <td>predict_hybrid()</td>
+                            <td style="color: #ce9178;">Slowest (~2x)</td>
+                            <td style="color: #4caf50;">Best</td>
+                            <td style="color: #4caf50;">Best</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Full Mode -->
+        <div class="section">
+            <h3>Full Mode - predict()</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Single Pass Inference</div>
+                        <div class="flow-step-desc">Run model on entire cropped ROI frame</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Return Detections</div>
+                        <div class="flow-step-desc">supervision.Detections object with boxes, masks, class IDs</div>
+                    </div>
+                </div>
+            </div>
+            <div class="code-block">
+<span class="keyword">def</span> <span class="function">predict</span>(self, frame, confidence):
+    results = self.model.predict(frame, threshold=confidence)
+    <span class="keyword">return</span> results[0].to_supervision()
+            </div>
+        </div>
+
+        <!-- SAHI Mode -->
+        <div class="section">
+            <h3>SAHI Mode - predict_sahi()</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Split into 3x2 Tiles</div>
+                        <div class="flow-step-desc">6 tiles with 30% overlap between adjacent tiles</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Infer Each Tile</div>
+                        <div class="flow-step-desc">Run model.predict() on each tile independently</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Offset Coordinates</div>
+                        <div class="flow-step-desc">Map tile-local coords back to full frame</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">4</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Merge with NMS</div>
+                        <div class="flow-step-desc">Remove duplicates from overlapping regions (IoU threshold: 0.3)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hybrid Mode -->
+        <div class="section">
+            <h3>Hybrid Mode - predict_hybrid()</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Combines full and SAHI for best accuracy (+6-14% AP). ~2x slower.
+            </p>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Run Full Inference</div>
+                        <div class="flow-step-desc">Captures large objects and global context</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Run SAHI Inference</div>
+                        <div class="flow-step-desc">Captures small objects at higher resolution</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Merge Both Results</div>
+                        <div class="flow-step-desc">Combine detections and apply NMS to remove duplicates</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Model Info -->
+        <div class="section">
+            <h3>Model Configuration</h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Setting</th>
+                            <th>Value</th>
+                            <th>Source</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Model</td>
+                            <td><code>RFDETRSegPreview</code></td>
+                            <td>rfdetr package</td>
+                        </tr>
+                        <tr>
+                            <td>Internal Resolution</td>
+                            <td><code>432 x 432</code></td>
+                            <td>Model default</td>
+                        </tr>
+                        <tr>
+                            <td>Backbone</td>
+                            <td><code>DINOv2 (patch 12)</code></td>
+                            <td>Model architecture</td>
+                        </tr>
+                        <tr>
+                            <td>SAHI Tiles</td>
+                            <td><code>3 x 2</code></td>
+                            <td>config.py</td>
+                        </tr>
+                        <tr>
+                            <td>SAHI Overlap</td>
+                            <td><code>30%</code></td>
+                            <td>config.py</td>
+                        </tr>
+                        <tr>
+                            <td>NMS IoU Threshold</td>
+                            <td><code>0.3</code></td>
+                            <td>config.py</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Related -->
+        <div class="section">
+            <h3>Related Components</h3>
+            <div class="component-grid">
+                <a href="pipeline.html" class="component-card">
+                    <h4>pipeline.py</h4>
+                    <p>Calls model inference methods</p>
+                </a>
+                <a href="preprocessing.html" class="component-card">
+                    <h4>preprocessing.py</h4>
+                    <p>Prepares frames for model</p>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <a href="index.html">&larr; Back to Overview</a>
+    </footer>
+</body>
+</html>

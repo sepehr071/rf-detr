@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualization - RF-DETR Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1><span>RF-DETR</span> Detection System Guide</h1>
+        <nav class="nav">
+            <a href="index.html">Overview</a>
+            <a href="runner.html">Runner</a>
+            <a href="pipeline.html">Pipeline</a>
+            <a href="model.html">Model</a>
+            <a href="camera.html">Camera</a>
+            <a href="visualization.html" class="active">Visualization</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Home</a> <span>/</span> <span>visualization.py</span>
+        </div>
+
+        <div class="page-title">
+            <h2>Visualizer</h2>
+            <p>Draw detections, summary panel, and handle display</p>
+        </div>
+
+        <!-- Flow Diagram -->
+        <div class="diagram-container">
+            <div class="diagram-title">Visualization Flow</div>
+            <div class="diagram">
+                <svg width="700" height="150" viewBox="0 0 700 150">
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#808080"/>
+                        </marker>
+                    </defs>
+
+                    <!-- Frame input -->
+                    <rect class="diagram-box" x="20" y="50" width="100" height="50" rx="6"/>
+                    <text class="diagram-text-small" x="70" y="80" text-anchor="middle">frame +</text>
+                    <text class="diagram-text-small" x="70" y="95" text-anchor="middle">detections</text>
+
+                    <path class="diagram-arrow" d="M120 75 L160 75"/>
+
+                    <!-- draw_detections -->
+                    <rect class="diagram-box" x="160" y="40" width="140" height="70" rx="6"/>
+                    <text class="diagram-text-small" x="230" y="65" text-anchor="middle">draw_detections()</text>
+                    <text class="diagram-text-small" x="230" y="85" text-anchor="middle" fill="#808080">boxes, masks</text>
+                    <text class="diagram-text-small" x="230" y="100" text-anchor="middle" fill="#808080">labels</text>
+
+                    <path class="diagram-arrow" d="M300 75 L340 75"/>
+
+                    <!-- draw_summary -->
+                    <rect class="diagram-box" x="340" y="40" width="140" height="70" rx="6"/>
+                    <text class="diagram-text-small" x="410" y="65" text-anchor="middle">draw_summary()</text>
+                    <text class="diagram-text-small" x="410" y="85" text-anchor="middle" fill="#808080">FPS, count</text>
+                    <text class="diagram-text-small" x="410" y="100" text-anchor="middle" fill="#808080">mode, time</text>
+
+                    <path class="diagram-arrow" d="M480 75 L520 75"/>
+
+                    <!-- show -->
+                    <rect class="diagram-box" x="520" y="50" width="80" height="50" rx="6"/>
+                    <text class="diagram-text-small" x="560" y="80" text-anchor="middle">show()</text>
+
+                    <path class="diagram-arrow" d="M600 75 L640 75"/>
+
+                    <!-- Display -->
+                    <rect class="diagram-box" x="640" y="50" width="50" height="50" rx="6" fill="#569cd6" stroke="#569cd6"/>
+                    <text class="diagram-text-small" x="665" y="80" text-anchor="middle" fill="#1e1e1e">GUI</text>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Visualizer Class -->
+        <div class="section">
+            <h3>Visualizer Class</h3>
+            <div class="code-block">
+<span class="keyword">class</span> <span class="function">Visualizer</span>:
+    <span class="keyword">def</span> <span class="function">create_window</span>(self, width, height):
+        <span class="comment"># Create OpenCV window</span>
+
+    <span class="keyword">def</span> <span class="function">draw_detections</span>(self, frame, detections, show_masks=True):
+        <span class="comment"># Draw bounding boxes, masks, and labels</span>
+        <span class="keyword">return</span> annotated_frame
+
+    <span class="keyword">def</span> <span class="function">draw_summary</span>(self, frame, detections, fps, mode, inference_time):
+        <span class="comment"># Draw summary panel with stats</span>
+        <span class="keyword">return</span> display_frame
+
+    <span class="keyword">def</span> <span class="function">show</span>(self, frame):
+        <span class="comment"># Display frame in window</span>
+
+    <span class="keyword">def</span> <span class="function">handle_input</span>(self, wait_ms) -> str:
+        <span class="comment"># Wait for keyboard input, return key</span>
+
+    <span class="keyword">def</span> <span class="function">save_screenshot</span>(self, frame):
+        <span class="comment"># Save current frame to file</span>
+
+    <span class="keyword">def</span> <span class="function">destroy</span>(self):
+        <span class="comment"># Close window</span>
+            </div>
+        </div>
+
+        <!-- Keyboard Controls -->
+        <div class="section">
+            <h3>Keyboard Controls</h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Key</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>Q</code></td>
+                            <td>Quit detection loop</td>
+                        </tr>
+                        <tr>
+                            <td><code>S</code></td>
+                            <td>Save screenshot</td>
+                        </tr>
+                        <tr>
+                            <td><code>M</code></td>
+                            <td>Toggle mask display</td>
+                        </tr>
+                        <tr>
+                            <td><code>+</code> / <code>=</code></td>
+                            <td>Increase confidence threshold</td>
+                        </tr>
+                        <tr>
+                            <td><code>-</code> / <code>_</code></td>
+                            <td>Decrease confidence threshold</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Display Elements -->
+        <div class="section">
+            <h3>Display Elements</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Bounding Boxes</div>
+                        <div class="flow-step-desc">Colored rectangles around detected objects</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Segmentation Masks</div>
+                        <div class="flow-step-desc">Semi-transparent overlays (toggle with M key)</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Labels</div>
+                        <div class="flow-step-desc">Class name + confidence (or tracker ID if --track)</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">4</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Summary Panel</div>
+                        <div class="flow-step-desc">FPS, object count, mode, inference time</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Related -->
+        <div class="section">
+            <h3>Related Components</h3>
+            <div class="component-grid">
+                <a href="runner.html" class="component-card">
+                    <h4>runner.py</h4>
+                    <p>Uses visualizer for display</p>
+                </a>
+                <a href="pipeline.html" class="component-card">
+                    <h4>pipeline.py</h4>
+                    <p>Provides detections to draw</p>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <a href="index.html">&larr; Back to Overview</a>
+    </footer>
+</body>
+</html>

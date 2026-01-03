@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Positioning - RF-DETR Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1><span>RF-DETR</span> Detection System Guide</h1>
+        <nav class="nav">
+            <a href="index.html">Overview</a>
+            <a href="runner.html">Runner</a>
+            <a href="pipeline.html">Pipeline</a>
+            <a href="model.html">Model</a>
+            <a href="camera.html">Camera</a>
+            <a href="visualization.html">Visualization</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Home</a> <span>/</span> <span>Positioning/</span>
+        </div>
+
+        <div class="page-title">
+            <h2>Position Calculation</h2>
+            <p>Calculate shelf positions from detections</p>
+        </div>
+
+        <!-- Flow -->
+        <div class="diagram-container">
+            <div class="diagram-title">Positioning Flow</div>
+            <div class="diagram">
+                <svg width="700" height="150" viewBox="0 0 700 150">
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#808080"/>
+                        </marker>
+                    </defs>
+
+                    <!-- Detections -->
+                    <rect class="diagram-box" x="20" y="50" width="100" height="50" rx="6"/>
+                    <text class="diagram-text-small" x="70" y="80" text-anchor="middle">Detections</text>
+
+                    <path class="diagram-arrow" d="M120 75 L160 75"/>
+
+                    <!-- Keypoint -->
+                    <rect class="diagram-box" x="160" y="40" width="130" height="70" rx="6"/>
+                    <text class="diagram-text-small" x="225" y="65" text-anchor="middle">Keypoint</text>
+                    <text class="diagram-text-small" x="225" y="80" text-anchor="middle">Processor</text>
+                    <text class="diagram-text-small" x="225" y="100" text-anchor="middle" fill="#808080">rotation angles</text>
+
+                    <path class="diagram-arrow" d="M290 75 L330 75"/>
+
+                    <!-- Calculate -->
+                    <rect class="diagram-box highlight" x="330" y="40" width="150" height="70" rx="6"/>
+                    <text class="diagram-text-small" x="405" y="60" text-anchor="middle">calculate_positions</text>
+                    <text class="diagram-text-small" x="405" y="80" text-anchor="middle" fill="#808080">shelf mapping</text>
+                    <text class="diagram-text-small" x="405" y="95" text-anchor="middle" fill="#808080">collision resolve</text>
+
+                    <path class="diagram-arrow" d="M480 75 L520 75"/>
+
+                    <!-- Output -->
+                    <rect class="diagram-box" x="520" y="50" width="100" height="50" rx="6"/>
+                    <text class="diagram-text-small" x="570" y="75" text-anchor="middle">Positions</text>
+                    <text class="diagram-text-small" x="570" y="90" text-anchor="middle" fill="#4ec9b0">List[dict]</text>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Main Function -->
+        <div class="section">
+            <h3>calculate_positions_from_detections()</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Main entry point for position calculation.
+            </p>
+            <div class="code-block">
+<span class="keyword">def</span> <span class="function">calculate_positions_from_detections</span>(
+    detections,                      <span class="comment"># supervision.Detections</span>
+    image_width: int,
+    image_height: int,
+    enable_collision_resolution=True,
+    angle_map: dict = None,          <span class="comment"># {bbox_id: angle}</span>
+) -> List[dict]:
+    <span class="comment"># Returns list of position dictionaries</span>
+            </div>
+        </div>
+
+        <!-- Steps -->
+        <div class="section">
+            <h3>Position Calculation Steps</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Process Keypoints</div>
+                        <div class="flow-step-file">utils/keypoint_processor.py</div>
+                        <div class="flow-step-desc">Detect rotation angles for multipack objects (6-packs, 4-packs)</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Map to Shelf Coordinates</div>
+                        <div class="flow-step-desc">Convert pixel coordinates to shelf position numbers</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Resolve Collisions</div>
+                        <div class="flow-step-desc">Adjust positions when multiple objects overlap</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">4</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Return Position List</div>
+                        <div class="flow-step-desc">List of dicts with class, position, angle</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Output Format -->
+        <div class="section">
+            <h3>Position Output Format</h3>
+            <div class="code-block">
+[
+    {
+        <span class="string">"class_id"</span>: 0,
+        <span class="string">"class_name"</span>: <span class="string">"DS_b_330"</span>,
+        <span class="string">"position"</span>: 5,
+        <span class="string">"angle"</span>: 0,
+        <span class="string">"bbox_id"</span>: <span class="string">"abc123"</span>
+    },
+    ...
+]
+            </div>
+        </div>
+
+        <!-- Keypoint Processor -->
+        <div class="section">
+            <h3>Keypoint Processor</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Detects rotation angles for large objects using pose estimation.
+            </p>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Crop Detection Regions</div>
+                        <div class="flow-step-desc">Extract image crops for multipack classes</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Run Pose Model</div>
+                        <div class="flow-step-desc">Detect keypoints in each crop</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Calculate Angle</div>
+                        <div class="flow-step-desc">Compute rotation from keypoint positions</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Related -->
+        <div class="section">
+            <h3>Related Components</h3>
+            <div class="component-grid">
+                <a href="runner.html" class="component-card">
+                    <h4>runner.py</h4>
+                    <p>Calls positioning after detection</p>
+                </a>
+                <a href="network.html" class="component-card">
+                    <h4>network_publish.py</h4>
+                    <p>Publishes positions via MQTT/HTTP</p>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <a href="index.html">&larr; Back to Overview</a>
+    </footer>
+</body>
+</html>

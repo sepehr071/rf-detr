@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DetectionRunner - RF-DETR Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1><span>RF-DETR</span> Detection System Guide</h1>
+        <nav class="nav">
+            <a href="index.html">Overview</a>
+            <a href="runner.html" class="active">Runner</a>
+            <a href="pipeline.html">Pipeline</a>
+            <a href="model.html">Model</a>
+            <a href="camera.html">Camera</a>
+            <a href="visualization.html">Visualization</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Home</a> <span>/</span> <span>runner.py</span>
+        </div>
+
+        <div class="page-title">
+            <h2>DetectionRunner</h2>
+            <p>Main orchestrator for camera and image detection modes</p>
+        </div>
+
+        <!-- Main Flow Diagram -->
+        <div class="diagram-container">
+            <div class="diagram-title">DetectionRunner Flow</div>
+            <div class="diagram">
+                <svg width="800" height="400" viewBox="0 0 800 400">
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#808080"/>
+                        </marker>
+                    </defs>
+
+                    <!-- run() method -->
+                    <rect class="diagram-box highlight" x="325" y="20" width="150" height="50" rx="6"/>
+                    <text class="diagram-text" x="400" y="50" text-anchor="middle">run()</text>
+
+                    <!-- Arrow to setup -->
+                    <path class="diagram-arrow" d="M400 70 L400 100"/>
+
+                    <!-- setup() -->
+                    <rect class="diagram-box" x="325" y="100" width="150" height="50" rx="6"/>
+                    <text class="diagram-text" x="400" y="130" text-anchor="middle">setup()</text>
+
+                    <!-- Arrow from setup -->
+                    <path class="diagram-arrow" d="M400 150 L400 180"/>
+
+                    <!-- Decision diamond (mode) -->
+                    <polygon points="400,180 450,210 400,240 350,210" fill="#2d2d2d" stroke="#3c3c3c" stroke-width="2"/>
+                    <text class="diagram-text-small" x="400" y="215" text-anchor="middle">mode?</text>
+
+                    <!-- Camera branch -->
+                    <path class="diagram-arrow" d="M350 210 L250 210 L250 270"/>
+                    <text class="diagram-text-small" x="280" y="200" fill="#808080">camera</text>
+
+                    <!-- Image branch -->
+                    <path class="diagram-arrow" d="M450 210 L550 210 L550 270"/>
+                    <text class="diagram-text-small" x="500" y="200" fill="#808080">image</text>
+
+                    <!-- Camera Loop -->
+                    <g class="clickable" onclick="scrollToSection('camera-loop')">
+                        <rect class="diagram-box" x="175" y="270" width="150" height="50" rx="6"/>
+                        <text class="diagram-text" x="250" y="295" text-anchor="middle">_run_camera_loop()</text>
+                    </g>
+
+                    <!-- Image Mode -->
+                    <g class="clickable" onclick="scrollToSection('image-mode')">
+                        <rect class="diagram-box" x="475" y="270" width="150" height="50" rx="6"/>
+                        <text class="diagram-text" x="550" y="295" text-anchor="middle">_run_image()</text>
+                    </g>
+
+                    <!-- Merge to cleanup -->
+                    <path class="diagram-arrow" d="M250 320 L250 350 L400 350"/>
+                    <path class="diagram-arrow" d="M550 320 L550 350 L400 350"/>
+                    <path class="diagram-arrow" d="M400 350 L400 370"/>
+
+                    <!-- Cleanup -->
+                    <rect class="diagram-box" x="325" y="370" width="150" height="40" rx="6"/>
+                    <text class="diagram-text-small" x="400" y="395" text-anchor="middle">cleanup()</text>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Setup Section -->
+        <div class="section" id="setup">
+            <h3>setup() - Initialize Components</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Setup Directories</div>
+                        <div class="flow-step-file">utils/io_setup.py</div>
+                        <div class="flow-step-desc">Creates output folders: labels/, images/, positions/, mqtt_logs/</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Create Pipeline</div>
+                        <div class="flow-step-file"><a href="pipeline.html">pipeline.py</a></div>
+                        <div class="flow-step-desc">Loads model, initializes tracker (if --track), loads ROI config</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Initialize Keypoint Processor</div>
+                        <div class="flow-step-file">utils/keypoint_processor.py</div>
+                        <div class="flow-step-desc">For rotation angle detection on large objects (if positioning enabled)</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">4</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Check ROI</div>
+                        <div class="flow-step-file">roi.py</div>
+                        <div class="flow-step-desc">Verify ROI configuration exists (from calibrate.py)</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">5</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Print Banner</div>
+                        <div class="flow-step-file">utils/banner.py</div>
+                        <div class="flow-step-desc">Display startup configuration</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">6</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Open Camera</div>
+                        <div class="flow-step-file"><a href="camera.html">camera.py</a></div>
+                        <div class="flow-step-desc">Initialize ImageCapture (camera mode only)</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">7</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Create Visualizer</div>
+                        <div class="flow-step-file"><a href="visualization.html">visualization.py</a></div>
+                        <div class="flow-step-desc">Initialize display window (GUI mode only)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Camera Loop Section -->
+        <div class="section" id="camera-loop">
+            <h3>_run_camera_loop() - Real-time Detection</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Capture Frame</div>
+                        <div class="flow-step-file"><a href="camera.html">camera.py</a> &rarr; capture_single()</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Run Pipeline</div>
+                        <div class="flow-step-file"><a href="pipeline.html">pipeline.py</a> &rarr; run(frame)</div>
+                        <div class="flow-step-desc">Returns InferenceResult with detections</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Save Labels (optional)</div>
+                        <div class="flow-step-file">utils/label_io.py &rarr; save_detections_to_txt()</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">4</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Process Keypoints</div>
+                        <div class="flow-step-file">utils/keypoint_processor.py &rarr; process()</div>
+                        <div class="flow-step-desc">Calculate rotation angles for large objects</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">5</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Calculate Positions</div>
+                        <div class="flow-step-file"><a href="positioning.html">Positioning/</a> &rarr; calculate_positions_from_detections()</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">6</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Publish Results</div>
+                        <div class="flow-step-file"><a href="network.html">utils/network_publish.py</a> &rarr; publish_mqtt() / publish_http()</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">7</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Calculate FPS</div>
+                        <div class="flow-step-desc">Track frame times, compute average</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">8</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Display Results</div>
+                        <div class="flow-step-file"><a href="visualization.html">visualization.py</a> &rarr; draw_detections(), draw_summary(), show()</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">9</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Handle Keyboard</div>
+                        <div class="flow-step-desc">Q=quit, S=screenshot, M=toggle masks, +/-=adjust confidence</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Image Mode Section -->
+        <div class="section" id="image-mode">
+            <h3>_run_image() - Single Image Inference</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Load Image</div>
+                        <div class="flow-step-file"><a href="camera.html">camera.py</a> &rarr; load_image()</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Run Pipeline</div>
+                        <div class="flow-step-file"><a href="pipeline.html">pipeline.py</a> &rarr; run(frame)</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Save Labels (optional)</div>
+                        <div class="flow-step-file">utils/label_io.py</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">4</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Process Keypoints</div>
+                        <div class="flow-step-file">utils/keypoint_processor.py</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">5</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Calculate & Publish Positions</div>
+                        <div class="flow-step-file"><a href="positioning.html">Positioning/</a>, <a href="network.html">network_publish.py</a></div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">6</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Visualize & Save</div>
+                        <div class="flow-step-file"><a href="visualization.html">visualization.py</a></div>
+                        <div class="flow-step-desc">Draw detections, save result image</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">7</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Display Result</div>
+                        <div class="flow-step-desc">Show in window (GUI mode) or skip (CLI mode)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Related Components -->
+        <div class="section">
+            <h3>Related Components</h3>
+            <div class="component-grid">
+                <a href="pipeline.html" class="component-card">
+                    <h4>pipeline.py</h4>
+                    <p>Core inference pipeline called by runner</p>
+                </a>
+                <a href="camera.html" class="component-card">
+                    <h4>camera.py</h4>
+                    <p>Image capture for both modes</p>
+                </a>
+                <a href="visualization.html" class="component-card">
+                    <h4>visualization.py</h4>
+                    <p>Result display and drawing</p>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <a href="index.html">&larr; Back to Overview</a>
+    </footer>
+
+    <style>
+        .clickable { cursor: pointer; }
+        .clickable:hover rect { fill: #3a3a3a; stroke: #569cd6; }
+    </style>
+    <script>
+        function scrollToSection(id) {
+            document.getElementById(id).scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>

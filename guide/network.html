@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Publishing - RF-DETR Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1><span>RF-DETR</span> Detection System Guide</h1>
+        <nav class="nav">
+            <a href="index.html">Overview</a>
+            <a href="runner.html">Runner</a>
+            <a href="pipeline.html">Pipeline</a>
+            <a href="model.html">Model</a>
+            <a href="camera.html">Camera</a>
+            <a href="visualization.html">Visualization</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Home</a> <span>/</span> <span>utils/network_publish.py</span>
+        </div>
+
+        <div class="page-title">
+            <h2>Network Publishing</h2>
+            <p>Publish detection positions via MQTT and HTTP</p>
+        </div>
+
+        <!-- Flow Diagram -->
+        <div class="diagram-container">
+            <div class="diagram-title">Publishing Flow</div>
+            <div class="diagram">
+                <svg width="600" height="200" viewBox="0 0 600 200">
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#808080"/>
+                        </marker>
+                    </defs>
+
+                    <!-- Positions -->
+                    <rect class="diagram-box" x="20" y="75" width="100" height="50" rx="6"/>
+                    <text class="diagram-text-small" x="70" y="105" text-anchor="middle">Positions</text>
+
+                    <path class="diagram-arrow" d="M120 100 L160 100"/>
+
+                    <!-- format_payload -->
+                    <rect class="diagram-box" x="160" y="65" width="120" height="70" rx="6"/>
+                    <text class="diagram-text-small" x="220" y="90" text-anchor="middle">format_payload()</text>
+                    <text class="diagram-text-small" x="220" y="110" text-anchor="middle" fill="#808080">JSON payload</text>
+
+                    <path class="diagram-arrow" d="M280 85 L340 50"/>
+                    <path class="diagram-arrow" d="M280 115 L340 150"/>
+
+                    <!-- MQTT -->
+                    <rect class="diagram-box" x="340" y="20" width="120" height="60" rx="6"/>
+                    <text class="diagram-text-small" x="400" y="45" text-anchor="middle">publish_mqtt()</text>
+                    <text class="diagram-text-small" x="400" y="65" text-anchor="middle" fill="#4ec9b0">--mqtt</text>
+
+                    <!-- HTTP -->
+                    <rect class="diagram-box" x="340" y="120" width="120" height="60" rx="6"/>
+                    <text class="diagram-text-small" x="400" y="145" text-anchor="middle">publish_http()</text>
+                    <text class="diagram-text-small" x="400" y="165" text-anchor="middle" fill="#4ec9b0">--web</text>
+
+                    <path class="diagram-arrow" d="M460 50 L510 50"/>
+                    <path class="diagram-arrow" d="M460 150 L510 150"/>
+
+                    <!-- MQTT Broker -->
+                    <rect class="diagram-box" x="510" y="25" width="70" height="50" rx="6" fill="#569cd6" stroke="#569cd6"/>
+                    <text class="diagram-text-small" x="545" y="55" text-anchor="middle" fill="#1e1e1e">MQTT</text>
+
+                    <!-- HTTP Server -->
+                    <rect class="diagram-box" x="510" y="125" width="70" height="50" rx="6" fill="#4ec9b0" stroke="#4ec9b0"/>
+                    <text class="diagram-text-small" x="545" y="155" text-anchor="middle" fill="#1e1e1e">HTTP</text>
+                </svg>
+            </div>
+        </div>
+
+        <!-- MQTT Section -->
+        <div class="section">
+            <h3>MQTT Publishing</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Enable with <code>--mqtt</code> flag. Publishes to configured broker.
+            </p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Setting</th>
+                            <th>Value</th>
+                            <th>Source</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>MQTT_BROKER_HOST</td>
+                            <td><code>89.36.137.77</code></td>
+                            <td>config.py</td>
+                        </tr>
+                        <tr>
+                            <td>MQTT_BROKER_PORT</td>
+                            <td><code>1883</code></td>
+                            <td>config.py</td>
+                        </tr>
+                        <tr>
+                            <td>MQTT_DEFAULT_TOPIC</td>
+                            <td><code>test/topic</code></td>
+                            <td>config.py</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="code-block">
+<span class="keyword">def</span> <span class="function">configure_mqtt</span>(host=None, port=None, topic=None):
+    <span class="comment"># Configure MQTT connection</span>
+
+<span class="keyword">def</span> <span class="function">publish_mqtt</span>(positions, log_dir=None, log_name=None) -> PublishResult:
+    <span class="comment"># Publish positions to MQTT broker</span>
+    <span class="comment"># Saves payload log to mqtt_logs/ if log_dir specified</span>
+            </div>
+        </div>
+
+        <!-- HTTP Section -->
+        <div class="section">
+            <h3>HTTP Publishing</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Enable with <code>--web</code> flag. Sends POST request to endpoint.
+            </p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Setting</th>
+                            <th>Value</th>
+                            <th>Source</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>HTTP_ENDPOINT</td>
+                            <td><code>http://91.107.184.69:3000/data/process</code></td>
+                            <td>config.py</td>
+                        </tr>
+                        <tr>
+                            <td>HTTP_TIMEOUT</td>
+                            <td><code>5</code> seconds</td>
+                            <td>config.py</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="code-block">
+<span class="keyword">def</span> <span class="function">publish_http</span>(positions, endpoint=None, timeout=None) -> PublishResult:
+    <span class="comment"># Send positions via HTTP POST</span>
+    <span class="comment"># Returns PublishResult with success/message</span>
+            </div>
+        </div>
+
+        <!-- Payload Format -->
+        <div class="section">
+            <h3>Payload Format</h3>
+            <div class="code-block">
+{
+    <span class="string">"store_id"</span>: 1,
+    <span class="string">"device_id"</span>: 1,
+    <span class="string">"level"</span>: 4,
+    <span class="string">"products"</span>: [
+        {
+            <span class="string">"class_id"</span>: 0,
+            <span class="string">"class_name"</span>: <span class="string">"DS_b_330"</span>,
+            <span class="string">"position"</span>: 5,
+            <span class="string">"angle"</span>: 0
+        },
+        ...
+    ],
+    <span class="string">"other_products"</span>: [
+        <span class="comment">// Objects with class_id = -1 (Other)</span>
+    ]
+}
+            </div>
+        </div>
+
+        <!-- PublishResult -->
+        <div class="section">
+            <h3>PublishResult</h3>
+            <div class="code-block">
+<span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">PublishResult</span>:
+    success: bool
+    message: str
+            </div>
+        </div>
+
+        <!-- Usage -->
+        <div class="section">
+            <h3>Usage</h3>
+            <div class="code-block">
+<span class="comment"># Enable MQTT publishing</span>
+python main.py --mqtt
+
+<span class="comment"># Enable HTTP publishing</span>
+python main.py --web
+
+<span class="comment"># Both (auto-enables positioning)</span>
+python main.py --mqtt --web
+            </div>
+        </div>
+
+        <!-- Related -->
+        <div class="section">
+            <h3>Related Components</h3>
+            <div class="component-grid">
+                <a href="runner.html" class="component-card">
+                    <h4>runner.py</h4>
+                    <p>Calls publish after position calculation</p>
+                </a>
+                <a href="positioning.html" class="component-card">
+                    <h4>Positioning/</h4>
+                    <p>Provides positions to publish</p>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <a href="index.html">&larr; Back to Overview</a>
+    </footer>
+</body>
+</html>

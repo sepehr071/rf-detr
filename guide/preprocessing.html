@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preprocessing - RF-DETR Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1><span>RF-DETR</span> Detection System Guide</h1>
+        <nav class="nav">
+            <a href="index.html">Overview</a>
+            <a href="runner.html">Runner</a>
+            <a href="pipeline.html">Pipeline</a>
+            <a href="model.html">Model</a>
+            <a href="camera.html">Camera</a>
+            <a href="visualization.html">Visualization</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Home</a> <span>/</span> <span>utils/preprocessing.py</span>
+        </div>
+
+        <div class="page-title">
+            <h2>Frame Preprocessing</h2>
+            <p>Resize, crop, mask, and convert frames for model input</p>
+        </div>
+
+        <!-- Flow Diagram -->
+        <div class="diagram-container">
+            <div class="diagram-title">preprocess_frame() Flow</div>
+            <div class="diagram">
+                <svg width="800" height="150" viewBox="0 0 800 150">
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#808080"/>
+                        </marker>
+                    </defs>
+
+                    <!-- Input -->
+                    <rect class="diagram-box" x="20" y="50" width="80" height="50" rx="6"/>
+                    <text class="diagram-text-small" x="60" y="75" text-anchor="middle">BGR</text>
+                    <text class="diagram-text-small" x="60" y="90" text-anchor="middle">Frame</text>
+
+                    <path class="diagram-arrow" d="M100 75 L130 75"/>
+
+                    <!-- Resize -->
+                    <rect class="diagram-box" x="130" y="40" width="120" height="70" rx="6"/>
+                    <text class="diagram-text-small" x="190" y="65" text-anchor="middle">Resize</text>
+                    <text class="diagram-text-small" x="190" y="85" text-anchor="middle" fill="#808080">max dimension</text>
+                    <text class="diagram-text-small" x="190" y="100" text-anchor="middle" fill="#808080">keep aspect</text>
+
+                    <path class="diagram-arrow" d="M250 75 L280 75"/>
+
+                    <!-- Crop ROI -->
+                    <rect class="diagram-box" x="280" y="40" width="120" height="70" rx="6"/>
+                    <text class="diagram-text-small" x="340" y="65" text-anchor="middle">Crop ROI</text>
+                    <text class="diagram-text-small" x="340" y="85" text-anchor="middle" fill="#808080">extract bbox</text>
+                    <text class="diagram-text-small" x="340" y="100" text-anchor="middle" fill="#808080">store offset</text>
+
+                    <path class="diagram-arrow" d="M400 75 L430 75"/>
+
+                    <!-- Apply Mask -->
+                    <rect class="diagram-box" x="430" y="40" width="120" height="70" rx="6"/>
+                    <text class="diagram-text-small" x="490" y="65" text-anchor="middle">Apply Mask</text>
+                    <text class="diagram-text-small" x="490" y="85" text-anchor="middle" fill="#808080">polygon mask</text>
+                    <text class="diagram-text-small" x="490" y="100" text-anchor="middle" fill="#808080">black outside</text>
+
+                    <path class="diagram-arrow" d="M550 75 L580 75"/>
+
+                    <!-- Convert RGB -->
+                    <rect class="diagram-box" x="580" y="40" width="100" height="70" rx="6"/>
+                    <text class="diagram-text-small" x="630" y="65" text-anchor="middle">BGR&rarr;RGB</text>
+                    <text class="diagram-text-small" x="630" y="85" text-anchor="middle" fill="#808080">for model</text>
+
+                    <path class="diagram-arrow" d="M680 75 L710 75"/>
+
+                    <!-- Output -->
+                    <rect class="diagram-box" x="710" y="45" width="80" height="60" rx="6" fill="#4ec9b0" stroke="#4ec9b0"/>
+                    <text class="diagram-text-small" x="750" y="70" text-anchor="middle" fill="#1e1e1e">RGB</text>
+                    <text class="diagram-text-small" x="750" y="85" text-anchor="middle" fill="#1e1e1e">Ready</text>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Steps -->
+        <div class="section">
+            <h3>Preprocessing Steps</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Resize Frame</div>
+                        <div class="flow-step-desc">Scale to max dimension while preserving aspect ratio. Reduces memory and speeds up inference.</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Crop to ROI Bounding Box</div>
+                        <div class="flow-step-file">roi.py &rarr; crop_to_roi()</div>
+                        <div class="flow-step-desc">Extract rectangular region containing the ROI polygon. Stores x/y offset for later coordinate mapping.</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Apply Polygon Mask</div>
+                        <div class="flow-step-file">roi.py &rarr; apply_mask_to_cropped()</div>
+                        <div class="flow-step-desc">Set pixels outside ROI polygon to black. Prevents false detections outside area of interest.</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">4</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Convert BGR to RGB</div>
+                        <div class="flow-step-desc">Model expects RGB input, OpenCV uses BGR.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PreprocessedFrame -->
+        <div class="section">
+            <h3>PreprocessedFrame Result</h3>
+            <div class="code-block">
+<span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">PreprocessedFrame</span>:
+    frame_rgb: np.ndarray      <span class="comment"># RGB frame for model input</span>
+    frame_masked: np.ndarray   <span class="comment"># BGR masked frame (for tracker)</span>
+    frame_resized: np.ndarray  <span class="comment"># Full resized frame (for saving)</span>
+    original_height: int       <span class="comment"># Original frame height</span>
+    original_width: int        <span class="comment"># Original frame width</span>
+    x_offset: int              <span class="comment"># ROI crop X offset</span>
+    y_offset: int              <span class="comment"># ROI crop Y offset</span>
+    scale: float               <span class="comment"># Resize scale factor</span>
+    scaled_roi: ROIManager     <span class="comment"># Scaled ROI for filtering</span>
+    timings: Dict[str, float]  <span class="comment"># Timing breakdown</span>
+            </div>
+        </div>
+
+        <!-- ROI -->
+        <div class="section">
+            <h3>ROI (Region of Interest)</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Defined using calibrate.py. Stored in roi_config.json.
+            </p>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Run Calibration</div>
+                        <div class="flow-step-desc"><code>python calibrate.py</code> - Click to define polygon corners</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Load at Startup</div>
+                        <div class="flow-step-desc">pipeline.py loads ROI from roi_config.json</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Apply During Preprocessing</div>
+                        <div class="flow-step-desc">Crop and mask frame to ROI region</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Related -->
+        <div class="section">
+            <h3>Related Components</h3>
+            <div class="component-grid">
+                <a href="pipeline.html" class="component-card">
+                    <h4>pipeline.py</h4>
+                    <p>Calls preprocess_frame()</p>
+                </a>
+                <a href="model.html" class="component-card">
+                    <h4>model.py</h4>
+                    <p>Receives preprocessed frame</p>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <a href="index.html">&larr; Back to Overview</a>
+    </footer>
+</body>
+</html>

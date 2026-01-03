@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera - RF-DETR Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1><span>RF-DETR</span> Detection System Guide</h1>
+        <nav class="nav">
+            <a href="index.html">Overview</a>
+            <a href="runner.html">Runner</a>
+            <a href="pipeline.html">Pipeline</a>
+            <a href="model.html">Model</a>
+            <a href="camera.html" class="active">Camera</a>
+            <a href="visualization.html">Visualization</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Home</a> <span>/</span> <span>camera.py</span>
+        </div>
+
+        <div class="page-title">
+            <h2>Camera & Image Input</h2>
+            <p>Image capture and loading for detection</p>
+        </div>
+
+        <!-- ImageCapture Class -->
+        <div class="section">
+            <h3>ImageCapture Class</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Handles camera capture for real-time detection mode.
+            </p>
+            <div class="code-block">
+<span class="keyword">class</span> <span class="function">ImageCapture</span>:
+    <span class="keyword">def</span> <span class="function">__init__</span>(self, camera_index, width, height):
+        <span class="comment"># Initialize with camera index and resolution</span>
+
+    <span class="keyword">def</span> <span class="function">open</span>(self) -> bool:
+        <span class="comment"># Open camera connection</span>
+
+    <span class="keyword">def</span> <span class="function">capture_single</span>(self) -> np.ndarray:
+        <span class="comment"># Capture single frame (BGR)</span>
+
+    <span class="keyword">def</span> <span class="function">release</span>(self):
+        <span class="comment"># Release camera</span>
+            </div>
+        </div>
+
+        <!-- load_image Function -->
+        <div class="section">
+            <h3>load_image() Function</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Loads image from file for single-image inference mode.
+            </p>
+            <div class="code-block">
+<span class="keyword">def</span> <span class="function">load_image</span>(path: str) -> np.ndarray:
+    <span class="comment"># Load image from file path</span>
+    <span class="comment"># Returns BGR numpy array</span>
+    <span class="keyword">return</span> cv2.imread(path)
+            </div>
+        </div>
+
+        <!-- Configuration -->
+        <div class="section">
+            <h3>Camera Configuration</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Settings from config.py
+            </p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Setting</th>
+                            <th>Value</th>
+                            <th>CLI Flag</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>CAMERA_INDEX</td>
+                            <td><code>1</code></td>
+                            <td><code>--camera 0</code></td>
+                        </tr>
+                        <tr>
+                            <td>CAMERA_WIDTH</td>
+                            <td><code>1920</code></td>
+                            <td>-</td>
+                        </tr>
+                        <tr>
+                            <td>CAMERA_HEIGHT</td>
+                            <td><code>1080</code></td>
+                            <td>-</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Usage -->
+        <div class="section">
+            <h3>Usage in Runner</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Camera Mode</div>
+                        <div class="flow-step-desc">runner.setup() creates ImageCapture and calls open()</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Each Frame</div>
+                        <div class="flow-step-desc">_run_camera_loop() calls capture_single() to get BGR frame</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Image Mode</div>
+                        <div class="flow-step-desc">_run_image() calls load_image() once</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Related -->
+        <div class="section">
+            <h3>Related Components</h3>
+            <div class="component-grid">
+                <a href="runner.html" class="component-card">
+                    <h4>runner.py</h4>
+                    <p>Uses camera for capture</p>
+                </a>
+                <a href="preprocessing.html" class="component-card">
+                    <h4>preprocessing.py</h4>
+                    <p>Processes captured frames</p>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <a href="index.html">&larr; Back to Overview</a>
+    </footer>
+</body>
+</html>

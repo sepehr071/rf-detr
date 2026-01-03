@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline - RF-DETR Guide</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1><span>RF-DETR</span> Detection System Guide</h1>
+        <nav class="nav">
+            <a href="index.html">Overview</a>
+            <a href="runner.html">Runner</a>
+            <a href="pipeline.html" class="active">Pipeline</a>
+            <a href="model.html">Model</a>
+            <a href="camera.html">Camera</a>
+            <a href="visualization.html">Visualization</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Home</a> <span>/</span> <span>pipeline.py</span>
+        </div>
+
+        <div class="page-title">
+            <h2>InferencePipeline</h2>
+            <p>Unified inference pipeline: preprocess &rarr; infer &rarr; post-process</p>
+        </div>
+
+        <!-- Main Pipeline Diagram -->
+        <div class="diagram-container">
+            <div class="diagram-title">pipeline.run(frame) Flow</div>
+            <div class="diagram">
+                <svg width="850" height="350" viewBox="0 0 850 350">
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#808080"/>
+                        </marker>
+                    </defs>
+
+                    <!-- Input -->
+                    <rect class="diagram-box" x="20" y="130" width="100" height="50" rx="6"/>
+                    <text class="diagram-text-small" x="70" y="160" text-anchor="middle">frame</text>
+
+                    <path class="diagram-arrow" d="M120 155 L160 155"/>
+
+                    <!-- Preprocess -->
+                    <g class="clickable" onclick="location.href='preprocessing.html'">
+                        <rect class="diagram-box" x="160" y="110" width="140" height="90" rx="6"/>
+                        <text class="diagram-text" x="230" y="140" text-anchor="middle">Preprocess</text>
+                        <text class="diagram-text-small" x="230" y="160" text-anchor="middle" fill="#808080">Resize</text>
+                        <text class="diagram-text-small" x="230" y="175" text-anchor="middle" fill="#808080">Crop ROI</text>
+                        <text class="diagram-text-small" x="230" y="190" text-anchor="middle" fill="#808080">Apply Mask</text>
+                    </g>
+
+                    <path class="diagram-arrow" d="M300 155 L340 155"/>
+
+                    <!-- Inference -->
+                    <g class="clickable" onclick="location.href='model.html'">
+                        <rect class="diagram-box highlight" x="340" y="100" width="170" height="110" rx="6"/>
+                        <text class="diagram-text" x="425" y="130" text-anchor="middle">Inference</text>
+                        <text class="diagram-text-small" x="425" y="155" text-anchor="middle" fill="#4ec9b0">full | sahi | hybrid</text>
+                        <text class="diagram-text-small" x="425" y="175" text-anchor="middle" fill="#808080">model.predict*()</text>
+                        <text class="diagram-text-small" x="425" y="195" text-anchor="middle" fill="#808080">RF-DETR-Seg</text>
+                    </g>
+
+                    <path class="diagram-arrow" d="M510 155 L550 155"/>
+
+                    <!-- Post-process -->
+                    <rect class="diagram-box" x="550" y="100" width="140" height="110" rx="6"/>
+                    <text class="diagram-text" x="620" y="130" text-anchor="middle">Post-process</text>
+                    <text class="diagram-text-small" x="620" y="155" text-anchor="middle" fill="#808080">NMS (optional)</text>
+                    <text class="diagram-text-small" x="620" y="170" text-anchor="middle" fill="#808080">Tracker (optional)</text>
+                    <text class="diagram-text-small" x="620" y="185" text-anchor="middle" fill="#808080">Offset coords</text>
+                    <text class="diagram-text-small" x="620" y="200" text-anchor="middle" fill="#808080">Filter ROI</text>
+
+                    <path class="diagram-arrow" d="M690 155 L730 155"/>
+
+                    <!-- Output -->
+                    <rect class="diagram-box" x="730" y="120" width="100" height="70" rx="6"/>
+                    <text class="diagram-text-small" x="780" y="150" text-anchor="middle">Inference</text>
+                    <text class="diagram-text-small" x="780" y="165" text-anchor="middle">Result</text>
+                    <text class="diagram-text-small" x="780" y="183" text-anchor="middle" fill="#4ec9b0">detections</text>
+
+                    <!-- Files labels -->
+                    <text class="diagram-text-small" x="230" y="85" text-anchor="middle" fill="#569cd6">preprocessing.py</text>
+                    <text class="diagram-text-small" x="425" y="75" text-anchor="middle" fill="#569cd6">model.py</text>
+                    <text class="diagram-text-small" x="620" y="85" text-anchor="middle" fill="#569cd6">nms.py, tracker.py</text>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Preprocess Section -->
+        <div class="section" id="preprocess">
+            <h3>1. Preprocess</h3>
+            <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                Prepares the frame for model inference. See <a href="preprocessing.html">preprocessing.py</a> for details.
+            </p>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Resize</div>
+                        <div class="flow-step-desc">Scale frame to max dimension (preserves aspect ratio)</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Crop to ROI</div>
+                        <div class="flow-step-desc">Extract region of interest bounding box</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Apply Polygon Mask</div>
+                        <div class="flow-step-desc">Black out pixels outside ROI polygon</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">4</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Convert BGR &rarr; RGB</div>
+                        <div class="flow-step-desc">Model expects RGB input</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Inference Section -->
+        <div class="section" id="inference">
+            <h3>2. Inference Modes</h3>
+            <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                Three modes available. See <a href="model.html">model.py</a> for details.
+            </p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Mode</th>
+                            <th>Method</th>
+                            <th>Description</th>
+                            <th>Best For</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>full</code></td>
+                            <td>predict()</td>
+                            <td>Single pass on entire frame</td>
+                            <td>Speed, large objects</td>
+                        </tr>
+                        <tr>
+                            <td><code>sahi</code></td>
+                            <td>predict_sahi()</td>
+                            <td>3x2 tiled inference, 30% overlap</td>
+                            <td>Small objects (default)</td>
+                        </tr>
+                        <tr>
+                            <td><code>hybrid</code></td>
+                            <td>predict_hybrid()</td>
+                            <td>Full + SAHI combined with NMS</td>
+                            <td>Best accuracy (+6-14% AP)</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Post-process Section -->
+        <div class="section" id="postprocess">
+            <h3>3. Post-process</h3>
+            <div class="flow-steps">
+                <div class="flow-step">
+                    <div class="flow-step-number">1</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Apply NMS</div>
+                        <div class="flow-step-file">nms.py (if --nms flag)</div>
+                        <div class="flow-step-desc">Remove duplicate detections</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">2</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Update Tracker</div>
+                        <div class="flow-step-file">tracker.py (if --track flag)</div>
+                        <div class="flow-step-desc">Assign persistent IDs with BoT-SORT</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">3</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Offset Detections</div>
+                        <div class="flow-step-file">model.py &rarr; offset_detections()</div>
+                        <div class="flow-step-desc">Map cropped coords back to original frame</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">4</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Filter by ROI</div>
+                        <div class="flow-step-file">roi.py &rarr; filter_detections()</div>
+                        <div class="flow-step-desc">Keep only detections inside ROI polygon</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-step-number">5</div>
+                    <div class="flow-step-content">
+                        <div class="flow-step-title">Add Bbox IDs</div>
+                        <div class="flow-step-file">utils/id_helper.py</div>
+                        <div class="flow-step-desc">Generate unique IDs for each detection</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- InferenceResult -->
+        <div class="section">
+            <h3>InferenceResult</h3>
+            <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                Returned by pipeline.run()
+            </p>
+            <div class="code-block">
+<span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">InferenceResult</span>:
+    detections: Detections         <span class="comment"># Final detections (original coords)</span>
+    cropped_detections: Detections <span class="comment"># For visualization (cropped coords)</span>
+    frame_display: np.ndarray      <span class="comment"># BGR frame for visualization</span>
+    frame_resized: np.ndarray      <span class="comment"># Full resized frame (for saving)</span>
+    original_height: int
+    original_width: int
+    inference_time: float
+    timings: Dict[str, float]      <span class="comment"># Timing breakdown</span>
+            </div>
+        </div>
+
+        <!-- Related -->
+        <div class="section">
+            <h3>Related Components</h3>
+            <div class="component-grid">
+                <a href="model.html" class="component-card">
+                    <h4>model.py</h4>
+                    <p>RF-DETR model and inference modes</p>
+                </a>
+                <a href="preprocessing.html" class="component-card">
+                    <h4>preprocessing.py</h4>
+                    <p>Frame preprocessing details</p>
+                </a>
+                <a href="runner.html" class="component-card">
+                    <h4>runner.py</h4>
+                    <p>Calls pipeline.run()</p>
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <a href="index.html">&larr; Back to Overview</a>
+    </footer>
+
+    <style>
+        .clickable { cursor: pointer; }
+        .clickable:hover rect { fill: #3a3a3a; stroke: #569cd6; }
+    </style>
+</body>
+</html>
