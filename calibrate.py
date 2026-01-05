@@ -24,13 +24,12 @@ import cv2
 import argparse
 
 from config import (
-    CAMERA_INDEX,
     CAMERA_WIDTH,
     CAMERA_HEIGHT,
     ROI_CONFIG_FILE
 )
 from roi import ROIManager
-from camera import ImageCapture, load_image
+from camera import ImageCapture, load_image, find_available_camera
 from visualization import draw_text_overlay
 
 
@@ -212,8 +211,9 @@ def main():
         source = args.camera
         is_camera = True
     else:
-        # Default to camera 0
-        source = CAMERA_INDEX
+        # Auto-detect camera (includes permission checks and quality validation)
+        print("Auto-detecting camera...")
+        source = find_available_camera()
         is_camera = True
     
     # Run calibration
