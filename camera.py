@@ -145,7 +145,7 @@ def scan_dev_video_devices() -> List[int]:
     return indices
 
 
-def scan_available_cameras(max_index: int = 4) -> List[int]:
+def scan_available_cameras(max_index: int = 4, early_return: bool = False) -> List[int]:
     """
     Scan for available real cameras with quality validation.
 
@@ -156,6 +156,7 @@ def scan_available_cameras(max_index: int = 4) -> List[int]:
 
     Args:
         max_index: Maximum camera index to check (for fallback)
+        early_return: If True, return immediately when first valid camera found
 
     Returns:
         List of working camera indices
@@ -212,6 +213,9 @@ def scan_available_cameras(max_index: int = 4) -> List[int]:
         if valid_frames >= 3:
             available_cameras.append(i)
             print(f"[CAMERA] Index {i}: ACCEPTED ({valid_frames}/5 valid frames)")
+            if early_return:
+                print(f"[CAMERA] Early return enabled, using first valid camera")
+                return available_cameras
         else:
             print(f"[CAMERA] Index {i}: REJECTED ({valid_frames}/5 valid frames)")
 
@@ -236,55 +240,40 @@ def find_available_camera(max_index: int = 4, preferred_index: Optional[int] = N
         Index of first working camera, or 0 if none found
     """
     print("[CAMERA] === Finding available camera ===")
-    if preferred_index is not None:
-        print(f"[CAMERA] Preferred index: {preferred_index}")
-
     backend = get_camera_backend()
-    available_cameras = scan_available_cameras(max_index)
 
-    if not available_cameras:
-        print("[CAMERA] ERROR: No real cameras found!")
-        print("[CAMERA] Defaulting to index 0 (may not work)")
-        return 0
-
-    print(f"[CAMERA] Available cameras after scan: {available_cameras}")
-
-    # Try preferred index first if specified and available
-    if preferred_index is not None and preferred_index in available_cameras:
-        print(f"[CAMERA] Preferred index {preferred_index} is available, testing...")
+    # Try preferred index first if specified
+    if preferred_index is not None:
+        print(f"[CAMERA] Testing preferred index: {preferred_index}")
         cap = cv2.VideoCapture(preferred_index, backend)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        ret, frame = cap.read()
-        if ret and frame is not None and validate_camera_quality(frame, verbose=True):
-            print(f"[CAMERA] SUCCESS: Using preferred camera index {preferred_index}")
-            cap.release()
-            return preferred_index
-        else:
-            print(f"[CAMERA] Preferred index {preferred_index} failed validation")
-        cap.release()
-
-    # Try other available cameras
-    print("[CAMERA] Trying other available cameras...")
-    for cam_index in available_cameras:
-        if cam_index != preferred_index:
-            print(f"[CAMERA] Final test for camera index {cam_index}...")
-            cap = cv2.VideoCapture(cam_index, backend)
+        if cap.isOpened():
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            ret, frame = cap.read()
-            if ret and frame is not None and validate_camera_quality(frame, verbose=True):
-                print(f"[CAMERA] SUCCESS: Using camera index {cam_index}")
-                cap.release()
-                return cam_index
+            valid_frames = 0
+            for i in range(3):  # Quick 3-frame test
+                ret, frame = cap.read()
+                if ret and frame is not None and validate_camera_quality(frame, verbose=(i == 0)):
+                    valid_frames += 1
+            cap.release()
+            if valid_frames >= 2:
+                print(f"[CAMERA] SUCCESS: Using preferred camera index {preferred_index}")
+                return preferred_index
             else:
-                print(f"[CAMERA] Camera index {cam_index} failed final validation")
+                print(f"[CAMERA] Preferred index {preferred_index} failed validation")
+        else:
+            print(f"[CAMERA] Preferred index {preferred_index} failed to open")
             cap.release()
 
-    # Fallback to first available if all validation fails
-    if available_cameras:
-        print(f"[CAMERA] WARNING: All cameras failed validation, using first available: {available_cameras[0]}")
-        return available_cameras[0]
+    # Scan for first available camera (early return when found)
+    print("[CAMERA] Scanning for first available camera...")
+    available_cameras = scan_available_cameras(max_index, early_return=True)
 
-    print("[CAMERA] ERROR: No camera found, defaulting to index 0")
+    if available_cameras:
+        cam_index = available_cameras[0]
+        print(f"[CAMERA] SUCCESS: Using camera index {cam_index}")
+        return cam_index
+
+    print("[CAMERA] ERROR: No real cameras found!")
+    print("[CAMERA] Defaulting to index 0 (may not work)")
     return 0
 
 
