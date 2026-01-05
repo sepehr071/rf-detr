@@ -24,6 +24,13 @@ if [ ! -f "$PROJECT_DIR/venv/bin/activate" ]; then
     exit 1
 fi
 
+# Check if user is in video group (required for camera access)
+if ! groups $CURRENT_USER | grep -q '\bvideo\b'; then
+    echo "WARNING: User '$CURRENT_USER' is not in 'video' group"
+    echo "Camera access may fail. Run: sudo ./scripts/setup-camera.sh"
+    echo ""
+fi
+
 # Check if start.sh is executable
 if [ ! -x "$SCRIPT_DIR/start.sh" ]; then
     chmod +x "$SCRIPT_DIR/start.sh"
@@ -42,12 +49,16 @@ After=multi-user.target
 [Service]
 Type=simple
 User=${CURRENT_USER}
+Group=${CURRENT_USER}
 WorkingDirectory=${PROJECT_DIR}
 ExecStart=${PROJECT_DIR}/scripts/start.sh
 Restart=always
 RestartSec=5
 StandardOutput=append:${PROJECT_DIR}/logs/service.log
 StandardError=append:${PROJECT_DIR}/logs/service-error.log
+
+# Camera Access - Add video group for /dev/video* access
+SupplementaryGroups=video
 
 # CPU Performance Settings
 Nice=-5
@@ -57,6 +68,9 @@ CPUSchedulingPriority=50
 # Use all available CPU cores
 Environment="OMP_NUM_THREADS=0"
 Environment="MKL_NUM_THREADS=0"
+
+# Prevent USB autosuspend issues
+Environment="OPENCV_VIDEOIO_PRIORITY_V4L2=1"
 
 [Install]
 WantedBy=multi-user.target
@@ -88,3 +102,7 @@ echo "View logs:"
 echo "  tail -f ${PROJECT_DIR}/logs/service.log"
 echo "  tail -f ${PROJECT_DIR}/logs/detection.log"
 echo "  journalctl -u ${SERVICE_NAME} -f"
+echo ""
+echo "If camera not detected, run:"
+echo "  sudo ./scripts/setup-camera.sh"
+echo "  sudo systemctl restart ${SERVICE_NAME}"

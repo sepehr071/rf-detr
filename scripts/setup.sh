@@ -41,18 +41,32 @@ pip install --upgrade pip
 echo "Installing dependencies from requirements.txt..."
 pip install -r requirements.txt
 
+# Install cv2-enumerate-cameras for better camera detection
+echo "Installing cv2-enumerate-cameras for camera detection..."
+pip install cv2-enumerate-cameras || echo "Warning: cv2-enumerate-cameras installation failed (optional)"
+
 # Make scripts executable
 echo "Making scripts executable..."
 chmod +x "$SCRIPT_DIR/start.sh"
 chmod +x "$SCRIPT_DIR/install-service.sh"
 chmod +x "$SCRIPT_DIR/uninstall-service.sh"
+chmod +x "$SCRIPT_DIR/setup-camera.sh"
+chmod +x "$SCRIPT_DIR/install-all.sh"
 
 echo ""
 echo "==================================="
-echo "Setup complete!"
+echo "Python Setup Complete!"
 echo "==================================="
 echo ""
-echo "To test manually:"
+echo "IMPORTANT: Run camera setup for proper USB camera access:"
+echo "  sudo ./scripts/setup-camera.sh"
+echo ""
+echo "This configures:"
+echo "  - Video group permissions"
+echo "  - uvcvideo kernel module for stability"
+echo "  - USB autosuspend disable for cameras"
+echo ""
+echo "After camera setup, to test manually:"
 echo "  ./scripts/start.sh"
 echo ""
 echo "To install as a service:"

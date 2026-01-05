@@ -2,7 +2,17 @@
 
 This guide explains how to run RF-DETR as a systemd service on Ubuntu for automatic startup at boot.
 
-## Quick Start
+## Quick Start (One-Click)
+
+```bash
+# Make scripts executable and run all-in-one installer
+chmod +x scripts/*.sh
+./scripts/install-all.sh
+```
+
+This will: setup Python, configure camera, and install the service.
+
+## Manual Setup (Step by Step)
 
 ```bash
 # 1. Make scripts executable
@@ -11,10 +21,15 @@ chmod +x scripts/*.sh
 # 2. Setup virtual environment and install dependencies
 ./scripts/setup.sh
 
-# 3. Test manually first (Ctrl+C to stop)
+# 3. Setup camera permissions and USB stability (IMPORTANT!)
+sudo ./scripts/setup-camera.sh
+
+# 4. Log out and log back in (required for video group)
+
+# 5. Test manually first (Ctrl+C to stop)
 ./scripts/start.sh
 
-# 4. Install as systemd service
+# 6. Install as systemd service
 ./scripts/install-service.sh
 ```
 
@@ -23,8 +38,10 @@ chmod +x scripts/*.sh
 | Script | Purpose |
 |--------|---------|
 | `scripts/setup.sh` | Creates venv, installs pip dependencies |
+| `scripts/setup-camera.sh` | Configures camera permissions, uvcvideo module, USB autosuspend |
 | `scripts/start.sh` | Activates venv, runs detection in headless mode |
 | `scripts/install-service.sh` | Generates and installs systemd service |
+| `scripts/install-all.sh` | One-click: setup + camera + service |
 | `scripts/uninstall-service.sh` | Removes the systemd service |
 
 ## Service Configuration
@@ -143,6 +160,11 @@ ls -la scripts/
 ### Camera not detected
 
 ```bash
+# Run camera setup script (recommended)
+sudo ./scripts/setup-camera.sh
+
+# Or manually:
+
 # List video devices
 ls -la /dev/video*
 
@@ -150,6 +172,50 @@ ls -la /dev/video*
 groups $USER
 sudo usermod -aG video $USER
 # Log out and back in for group change to take effect
+
+# Check uvcvideo module is loaded
+lsmod | grep uvcvideo
+sudo modprobe uvcvideo
+
+# List cameras with v4l2-ctl
+v4l2-ctl --list-devices
+```
+
+### Cameras disappear after scanning
+
+This is often caused by USB bus instability. The setup-camera.sh script configures:
+
+1. **uvcvideo module settings** (`/etc/modprobe.d/uvcvideo.conf`):
+   ```
+   options uvcvideo nodrop=1 timeout=5000 quirks=0x80
+   ```
+
+2. **USB autosuspend disable** (`/etc/udev/rules.d/99-usb-camera.rules`):
+   ```
+   ACTION=="add", SUBSYSTEM=="usb", ATTR{bInterfaceClass}=="0e", TEST=="power/control", ATTR{power/control}="on"
+   ```
+
+Manual fix:
+```bash
+# Reload uvcvideo module
+sudo rmmod uvcvideo
+sudo modprobe uvcvideo nodrop=1 timeout=5000 quirks=0x80
+
+# Disable USB autosuspend globally
+echo -1 | sudo tee /sys/module/usbcore/parameters/autosuspend
+```
+
+### Camera works manually but not as service
+
+```bash
+# Check service has video group access
+sudo systemctl status bottle-detection
+
+# Restart service after camera setup
+sudo systemctl restart bottle-detection
+
+# Check logs for camera errors
+journalctl -u bottle-detection -n 50 | grep -i camera
 ```
 
 ### Virtual environment issues
