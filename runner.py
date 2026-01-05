@@ -226,6 +226,8 @@ class DetectionRunner:
         fps = 0.0
         frame_times = []
         frame_counter = 0
+        consecutive_failures = 0
+        max_failures = 5  # Reconnect after 5 consecutive failures
 
         try:
             while True:
@@ -236,8 +238,19 @@ class DetectionRunner:
                 # ---------------------------------------------------------
                 frame = self.camera.capture_single()
                 if frame is None:
-                    print(" Failed to capture frame, retrying...")
+                    consecutive_failures += 1
+                    print(f"[CAMERA] Failed to capture frame ({consecutive_failures}/{max_failures})")
+
+                    if consecutive_failures >= max_failures:
+                        print("[CAMERA] Too many failures, attempting to reconnect...")
+                        if not self._reconnect_camera():
+                            print("[CAMERA] Reconnection failed, waiting 5 seconds...")
+                            time.sleep(5)
+                        consecutive_failures = 0
                     continue
+
+                # Reset failure counter on successful capture
+                consecutive_failures = 0
 
                 # ---------------------------------------------------------
                 # Step 2: Run inference pipeline → pipeline.py
@@ -427,6 +440,36 @@ class DetectionRunner:
             print("   Press 'M' to toggle masks")
             print("   Press '+'/'-' to adjust confidence")
         print()
+
+    def _reconnect_camera(self) -> bool:
+        """
+        Attempt to reconnect to a camera after disconnection.
+
+        Scans for available cameras and opens the first working one.
+
+        Returns:
+            True if reconnection successful, False otherwise
+        """
+        from camera import ImageCapture, find_available_camera
+
+        # Release current camera
+        if self.camera:
+            self.camera.release()
+
+        # Scan for available cameras
+        print("[CAMERA] Scanning for available cameras...")
+        camera_index = find_available_camera()
+
+        # Try to open new camera
+        print(f"[CAMERA] Attempting to open camera {camera_index}...")
+        self.camera = ImageCapture(camera_index, CAMERA_WIDTH, CAMERA_HEIGHT)
+
+        if self.camera.open():
+            print(f"[CAMERA] Successfully reconnected to camera {camera_index}")
+            return True
+        else:
+            print(f"[CAMERA] Failed to open camera {camera_index}")
+            return False
 
     def _save_frame_labels(self, result, detections, frame_counter, save_func):
         """Save detection labels for a camera frame."""
