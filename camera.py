@@ -6,36 +6,163 @@ Handles image capture from camera with single-frame capture mode.
 
 import cv2
 import numpy as np
-from typing import Optional, Tuple
+import platform
+import time
+from typing import Optional, Tuple, List
 
 from config import CAMERA_WIDTH, CAMERA_HEIGHT
 
 
-def find_available_camera(max_index: int = 10) -> int:
+def get_camera_backend() -> int:
     """
-    Scan for first available working camera.
+    Get platform-specific OpenCV camera backend.
 
-    Tests each camera index from 0 to max_index-1, returning the first
-    one that successfully opens and captures a frame.
+    Returns:
+        OpenCV backend constant for current platform
+    """
+    system = platform.system().lower()
+    if system == "windows":
+        return cv2.CAP_DSHOW
+    elif system == "linux":
+        return cv2.CAP_V4L2
+    elif system == "darwin":
+        return cv2.CAP_AVFOUNDATION
+    else:
+        return -1  # Auto-detect
+
+
+def validate_camera_quality(frame: np.ndarray) -> bool:
+    """
+    Validate camera frame quality to filter virtual/broken cameras.
+
+    Checks:
+    - Brightness (not too dark or too bright)
+    - Variance (not uniform/blank)
+    - Edge density (has actual visual content)
 
     Args:
-        max_index: Maximum camera index to check (default: 10)
+        frame: BGR frame from camera
+
+    Returns:
+        True if frame passes quality checks
+    """
+    if frame is None:
+        return False
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    # Check brightness (reject too dark or too bright)
+    brightness = np.mean(gray)
+    if brightness < 5 or brightness > 250:
+        return False
+
+    # Check variance (reject uniform/blank frames)
+    variance = np.var(gray)
+    if variance < 100:
+        return False
+
+    # Check edge density (reject frames without visual content)
+    edges = cv2.Canny(gray, 50, 150)
+    edge_density = np.sum(edges > 0) / (edges.shape[0] * edges.shape[1])
+    if edge_density < 0.01:
+        return False
+
+    return True
+
+
+def scan_available_cameras(max_index: int = 4) -> List[int]:
+    """
+    Scan for available real cameras with quality validation.
+
+    Tests each camera index and validates with multiple frames
+    to filter out virtual cameras and broken devices.
+
+    Args:
+        max_index: Maximum camera index to check
+
+    Returns:
+        List of working camera indices
+    """
+    backend = get_camera_backend()
+    available_cameras = []
+
+    print("[CAMERA] Scanning for available cameras...")
+
+    for i in range(max_index + 1):
+        cap = cv2.VideoCapture(i, backend)
+        if cap.isOpened():
+            valid_frames = 0
+            # Test 5 frames to ensure camera is real
+            for _ in range(5):
+                ret, frame = cap.read()
+                if ret and frame is not None and validate_camera_quality(frame):
+                    valid_frames += 1
+                time.sleep(0.1)
+
+            if valid_frames >= 3:
+                available_cameras.append(i)
+                print(f"[CAMERA] Found real camera at index {i}")
+            else:
+                print(f"[CAMERA] Rejected virtual/broken camera at index {i}")
+
+        cap.release()
+        time.sleep(0.1)
+
+    return available_cameras
+
+
+def find_available_camera(max_index: int = 4, preferred_index: Optional[int] = None) -> int:
+    """
+    Find first available working camera with quality validation.
+
+    Scans cameras, validates quality, and returns the best available.
+    Supports preferred index that will be tried first if available.
+
+    Args:
+        max_index: Maximum camera index to scan
+        preferred_index: Preferred camera index to try first
 
     Returns:
         Index of first working camera, or 0 if none found
     """
-    print("Scanning for available cameras...")
+    backend = get_camera_backend()
+    available_cameras = scan_available_cameras(max_index)
 
-    for i in range(max_index):
-        cap = cv2.VideoCapture(i)
-        if cap.isOpened():
-            ret, _ = cap.read()  # Test actual frame capture
+    if not available_cameras:
+        print("[CAMERA] No real cameras found! Defaulting to index 0")
+        return 0
+
+    # Try preferred index first if specified and available
+    if preferred_index is not None and preferred_index in available_cameras:
+        print(f"[CAMERA] Trying preferred camera index {preferred_index}")
+        cap = cv2.VideoCapture(preferred_index, backend)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        ret, frame = cap.read()
+        if ret and frame is not None and validate_camera_quality(frame):
+            print(f"[CAMERA] Connected to preferred camera index {preferred_index}")
             cap.release()
-            if ret:
-                print(f"Found working camera at index {i}")
-                return i
+            return preferred_index
+        cap.release()
 
-    print("No camera found, defaulting to index 0")
+    # Try other available cameras
+    for cam_index in available_cameras:
+        if cam_index != preferred_index:
+            print(f"[CAMERA] Trying camera index {cam_index}")
+            cap = cv2.VideoCapture(cam_index, backend)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            ret, frame = cap.read()
+            if ret and frame is not None and validate_camera_quality(frame):
+                print(f"[CAMERA] Connected to real camera index {cam_index}")
+                cap.release()
+                return cam_index
+            cap.release()
+
+    # Fallback to first available if all validation fails
+    if available_cameras:
+        print(f"[CAMERA] Using first available camera index {available_cameras[0]}")
+        return available_cameras[0]
+
+    print("[CAMERA] No camera found, defaulting to index 0")
     return 0
 
 
