@@ -145,84 +145,104 @@ def scan_dev_video_devices() -> List[int]:
     return indices
 
 
-def scan_available_cameras(max_index: int = 4, early_return: bool = False) -> List[int]:
+def scan_available_cameras(max_index: int = 4) -> List[int]:
     """
     Scan for available real cameras with quality validation.
 
-    Tries multiple methods:
+    Phase 1: Enumerate all candidate cameras (no testing)
+    Phase 2: Test cameras sequentially with fail-fast logic
+
+    Tries multiple enumeration methods:
     1. cv2-enumerate-cameras package (if installed)
     2. /dev/video* scanning (Linux only)
     3. Brute-force index scanning (fallback)
 
     Args:
         max_index: Maximum camera index to check (for fallback)
-        early_return: If True, return immediately when first valid camera found
 
     Returns:
-        List of working camera indices
+        List with single working camera index, or empty if none found
     """
     backend = get_camera_backend()
-    available_cameras = []
 
-    print("[CAMERA] === Starting camera scan ===")
+    print("[CAMERA] === Phase 1: Enumerate cameras ===")
 
     # Method 1: Try cv2-enumerate-cameras package
-    enumerated = enumerate_cameras_package()
+    candidates = enumerate_cameras_package()
 
     # Method 2: Try /dev/video* scanning on Linux
-    if not enumerated:
-        enumerated = scan_dev_video_devices()
+    if not candidates:
+        candidates = scan_dev_video_devices()
 
     # Method 3: Fallback to brute-force index scanning
-    if not enumerated:
+    if not candidates:
         print(f"[CAMERA] Using brute-force scan (indices 0-{max_index})...")
-        enumerated = list(range(max_index + 1))
+        candidates = list(range(max_index + 1))
 
-    print(f"[CAMERA] Candidate indices to test: {enumerated}")
+    # Print full list for debugging
+    print(f"[CAMERA] Candidate cameras found: {candidates}")
 
-    # Test each candidate camera
-    for i in enumerated:
+    if not candidates:
+        print("[CAMERA] No camera candidates found")
+        return []
+
+    print("[CAMERA] === Phase 2: Test cameras (fail-fast) ===")
+
+    # Test each candidate camera with fail-fast logic
+    for i in candidates:
         print(f"[CAMERA] Testing camera index {i}...")
 
         cap = cv2.VideoCapture(i, backend)
         if not cap.isOpened():
             print(f"[CAMERA] Index {i}: Failed to open")
             cap.release()
-            time.sleep(0.1)
             continue
 
-        print(f"[CAMERA] Index {i}: Opened successfully, testing frames...")
+        print(f"[CAMERA] Index {i}: Opened, testing frames...")
 
         valid_frames = 0
-        # Test 5 frames to ensure camera is real
-        for frame_num in range(5):
+        skip_camera = False
+
+        # Test up to 3 frames with fail-fast
+        for frame_num in range(1, 4):  # 1, 2, 3
             ret, frame = cap.read()
+
             if ret and frame is not None:
-                is_valid = validate_camera_quality(frame, verbose=(frame_num == 0))
+                is_valid = validate_camera_quality(frame, verbose=(frame_num == 1))
                 if is_valid:
                     valid_frames += 1
-                    print(f"[CAMERA] Index {i}: Frame {frame_num + 1}/5 valid")
+                    print(f"[CAMERA] Index {i}: Frame {frame_num} - VALID ({valid_frames} total)")
+
+                    # Success: 2 valid frames = use this camera
+                    if valid_frames >= 2:
+                        cap.release()
+                        print(f"[CAMERA] SUCCESS: Camera {i} ready (2 valid frames)")
+                        return [i]
                 else:
-                    print(f"[CAMERA] Index {i}: Frame {frame_num + 1}/5 invalid")
+                    print(f"[CAMERA] Index {i}: Frame {frame_num} - INVALID")
+                    # Fail-fast: if 2nd frame fails, skip to next camera
+                    if frame_num == 2:
+                        print(f"[CAMERA] Index {i}: Fail-fast triggered, trying next camera")
+                        skip_camera = True
+                        break
             else:
-                print(f"[CAMERA] Index {i}: Frame {frame_num + 1}/5 capture failed")
-            time.sleep(0.1)
+                print(f"[CAMERA] Index {i}: Frame {frame_num} - CAPTURE FAILED")
+                # Fail-fast on capture failure at frame 2
+                if frame_num == 2:
+                    print(f"[CAMERA] Index {i}: Fail-fast triggered, trying next camera")
+                    skip_camera = True
+                    break
 
         cap.release()
 
-        if valid_frames >= 3:
-            available_cameras.append(i)
-            print(f"[CAMERA] Index {i}: ACCEPTED ({valid_frames}/5 valid frames)")
-            if early_return:
-                print(f"[CAMERA] Early return enabled, using first valid camera")
-                return available_cameras
-        else:
-            print(f"[CAMERA] Index {i}: REJECTED ({valid_frames}/5 valid frames)")
+        if skip_camera:
+            continue
 
-        time.sleep(0.1)
+        # If we got here with some valid frames but not 2, camera is marginal
+        print(f"[CAMERA] Index {i}: REJECTED ({valid_frames} valid frames, need 2)")
 
-    print(f"[CAMERA] === Scan complete. Found {len(available_cameras)} real camera(s): {available_cameras} ===")
-    return available_cameras
+    print("[CAMERA] === Scan complete. No valid cameras found ===")
+    return []
 
 
 def find_available_camera(max_index: int = 4, preferred_index: Optional[int] = None) -> int:
@@ -263,9 +283,9 @@ def find_available_camera(max_index: int = 4, preferred_index: Optional[int] = N
             print(f"[CAMERA] Preferred index {preferred_index} failed to open")
             cap.release()
 
-    # Scan for first available camera (early return when found)
+    # Scan for first available camera
     print("[CAMERA] Scanning for first available camera...")
-    available_cameras = scan_available_cameras(max_index, early_return=True)
+    available_cameras = scan_available_cameras(max_index)
 
     if available_cameras:
         cam_index = available_cameras[0]
