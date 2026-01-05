@@ -41,5 +41,12 @@ export OPENCV_VIDEOIO_PRIORITY_V4L2=1
 echo "[START] Starting detection..."
 
 # Run detection with web mode, full inference, NMS, and headless CLI mode
-# Logs are written to both stdout (for systemd) and logs/detection.log
-exec python3 main.py --web --mode full --nms --cli 2>&1 | tee -a logs/detection.log
+# When run as systemd service, logs go to service.log via StandardOutput
+# When run manually, logs go to stdout and logs/detection.log
+if [ -n "$INVOCATION_ID" ]; then
+    # Running as systemd service - just exec, systemd handles logging
+    exec python3 main.py --web --mode full --nms --cli
+else
+    # Running manually - use tee to save logs
+    exec python3 main.py --web --mode full --nms --cli 2>&1 | tee -a logs/detection.log
+fi
