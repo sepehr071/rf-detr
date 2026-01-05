@@ -17,7 +17,7 @@ CAMERA_HEIGHT = 960
 # ============================================================================
 
 DEFAULT_CHECKPOINT = "models/model_2jan_best_ema.pth"
-DEFAULT_CONFIDENCE = 0.4
+DEFAULT_CONFIDENCE = 0.35
 
 # ============================================================================
 # SAHI SETTINGS (Tiling for small object detection)
