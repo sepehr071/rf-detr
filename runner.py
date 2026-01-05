@@ -147,9 +147,15 @@ class DetectionRunner:
         # Step 6: Open camera (camera mode only)
         # -----------------------------------------------------------------
         if not self.args.image:
-            from camera import ImageCapture
-            print("\n Opening camera...")
-            self.camera = ImageCapture(self.args.camera, CAMERA_WIDTH, CAMERA_HEIGHT)
+            from camera import ImageCapture, find_available_camera
+
+            # Auto-detect camera if not specified
+            camera_index = self.args.camera
+            if camera_index is None:
+                camera_index = find_available_camera()
+
+            print(f"\n Opening camera {camera_index}...")
+            self.camera = ImageCapture(camera_index, CAMERA_WIDTH, CAMERA_HEIGHT)
             if not self.camera.open():
                 print(" Failed to open camera.")
                 return False

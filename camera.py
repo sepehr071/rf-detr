@@ -8,7 +8,35 @@ import cv2
 import numpy as np
 from typing import Optional, Tuple
 
-from config import CAMERA_INDEX, CAMERA_WIDTH, CAMERA_HEIGHT
+from config import CAMERA_WIDTH, CAMERA_HEIGHT
+
+
+def find_available_camera(max_index: int = 10) -> int:
+    """
+    Scan for first available working camera.
+
+    Tests each camera index from 0 to max_index-1, returning the first
+    one that successfully opens and captures a frame.
+
+    Args:
+        max_index: Maximum camera index to check (default: 10)
+
+    Returns:
+        Index of first working camera, or 0 if none found
+    """
+    print("Scanning for available cameras...")
+
+    for i in range(max_index):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            ret, _ = cap.read()  # Test actual frame capture
+            cap.release()
+            if ret:
+                print(f"Found working camera at index {i}")
+                return i
+
+    print("No camera found, defaulting to index 0")
+    return 0
 
 
 class ImageCapture:
@@ -21,7 +49,7 @@ class ImageCapture:
     
     def __init__(
         self,
-        camera_index: int = CAMERA_INDEX,
+        camera_index: int = 0,
         width: int = CAMERA_WIDTH,
         height: int = CAMERA_HEIGHT
     ):

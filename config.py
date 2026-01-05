@@ -8,7 +8,7 @@ All configuration constants for the RF-DETR detection system.
 # CAMERA SETTINGS
 # ============================================================================
 
-CAMERA_INDEX = 1
+CAMERA_INDEX = None  # None = auto-detect first available camera
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 960
 

@@ -7,7 +7,6 @@ import argparse
 from config import (
     DEFAULT_CHECKPOINT,
     DEFAULT_CONFIDENCE,
-    CAMERA_INDEX,
     LABELS_DIR,
     POSITIONS_DIR,
 )
@@ -42,8 +41,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help="Disable OpenVINO optimization (OpenVINO is enabled by default)"
     )
     parser.add_argument(
-        "--camera", type=int, default=CAMERA_INDEX,
-        help="Camera index (default: 0)"
+        "--camera", type=int, default=None,
+        help="Camera index (default: auto-detect)"
     )
     parser.add_argument(
         "--save-labels", action="store_true",
