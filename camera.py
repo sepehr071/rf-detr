@@ -9,9 +9,97 @@ import numpy as np
 import platform
 import time
 import glob
+import os
+import subprocess
 from typing import Optional, Tuple, List
 
 from config import CAMERA_WIDTH, CAMERA_HEIGHT
+
+
+# Delay between camera operations to prevent USB bus destabilization
+CAMERA_RELEASE_DELAY = 0.5  # seconds
+CAMERA_OPEN_DELAY = 0.3     # seconds
+
+
+def check_camera_permissions() -> Tuple[bool, str]:
+    """
+    Check if current user has camera permissions on Linux.
+
+    On Linux, user must be in 'video' group to access /dev/video* devices.
+
+    Returns:
+        Tuple of (has_permission, message)
+    """
+    if platform.system().lower() != "linux":
+        return True, "Non-Linux system, permissions OK"
+
+    # Check if user is in video group
+    try:
+        import grp
+        import pwd
+        username = pwd.getpwuid(os.getuid()).pw_name
+        groups = [g.gr_name for g in grp.getgrall() if username in g.gr_mem]
+        # Also add primary group
+        primary_gid = pwd.getpwuid(os.getuid()).pw_gid
+        primary_group = grp.getgrgid(primary_gid).gr_name
+        groups.append(primary_group)
+
+        if 'video' in groups:
+            print(f"[CAMERA] User '{username}' is in 'video' group - permissions OK")
+            return True, f"User in video group"
+        else:
+            msg = f"User '{username}' is NOT in 'video' group. Run: sudo usermod -aG video {username}"
+            print(f"[CAMERA] WARNING: {msg}")
+            return False, msg
+    except Exception as e:
+        print(f"[CAMERA] Could not check permissions: {e}")
+        return True, "Could not verify permissions"
+
+
+def check_uvcvideo_module() -> Tuple[bool, str]:
+    """
+    Check if uvcvideo kernel module is loaded on Linux.
+
+    Returns:
+        Tuple of (is_loaded, message)
+    """
+    if platform.system().lower() != "linux":
+        return True, "Non-Linux system"
+
+    try:
+        result = subprocess.run(
+            ['lsmod'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if 'uvcvideo' in result.stdout:
+            print("[CAMERA] uvcvideo kernel module is loaded")
+            return True, "uvcvideo loaded"
+        else:
+            msg = "uvcvideo module not loaded. Run: sudo modprobe uvcvideo"
+            print(f"[CAMERA] WARNING: {msg}")
+            return False, msg
+    except Exception as e:
+        print(f"[CAMERA] Could not check uvcvideo module: {e}")
+        return True, "Could not verify module"
+
+
+def configure_uvcvideo_for_stability():
+    """
+    Print instructions for configuring uvcvideo module for stability.
+
+    This helps prevent USB camera disconnects on Linux.
+    """
+    if platform.system().lower() != "linux":
+        return
+
+    print("[CAMERA] === USB Camera Stability Tips ===")
+    print("[CAMERA] If cameras disappear after scanning, create /etc/modprobe.d/uvcvideo.conf:")
+    print("[CAMERA]   options uvcvideo nodrop=1 timeout=5000 quirks=0x80")
+    print("[CAMERA] Then reload: sudo rmmod uvcvideo && sudo modprobe uvcvideo")
+    print("[CAMERA] Or disable USB autosuspend: echo -1 | sudo tee /sys/module/usbcore/parameters/autosuspend")
+    print("[CAMERA] ===================================")
 
 
 def get_camera_backend() -> int:
@@ -149,6 +237,7 @@ def scan_available_cameras(max_index: int = 4) -> List[int]:
     """
     Scan for available real cameras with quality validation.
 
+    Phase 0: Check permissions and kernel module
     Phase 1: Enumerate all candidate cameras (no testing)
     Phase 2: Test cameras sequentially with fail-fast logic
 
@@ -164,6 +253,10 @@ def scan_available_cameras(max_index: int = 4) -> List[int]:
         List with single working camera index, or empty if none found
     """
     backend = get_camera_backend()
+
+    print("[CAMERA] === Phase 0: System checks ===")
+    check_camera_permissions()
+    check_uvcvideo_module()
 
     print("[CAMERA] === Phase 1: Enumerate cameras ===")
 
@@ -187,16 +280,25 @@ def scan_available_cameras(max_index: int = 4) -> List[int]:
         return []
 
     print("[CAMERA] === Phase 2: Test cameras (fail-fast) ===")
+    print(f"[CAMERA] Using {CAMERA_OPEN_DELAY}s delay between operations to prevent USB issues")
 
     # Test each candidate camera with fail-fast logic
     for i in candidates:
         print(f"[CAMERA] Testing camera index {i}...")
 
+        # Add delay before opening to prevent USB bus destabilization
+        time.sleep(CAMERA_OPEN_DELAY)
+
         cap = cv2.VideoCapture(i, backend)
         if not cap.isOpened():
             print(f"[CAMERA] Index {i}: Failed to open")
             cap.release()
+            time.sleep(CAMERA_RELEASE_DELAY)
             continue
+
+        # Set MJPG codec to prevent V4L2 timeout issues
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         print(f"[CAMERA] Index {i}: Opened, testing frames...")
 
@@ -216,6 +318,7 @@ def scan_available_cameras(max_index: int = 4) -> List[int]:
                     # Success: 2 valid frames = use this camera
                     if valid_frames >= 2:
                         cap.release()
+                        time.sleep(CAMERA_RELEASE_DELAY)
                         print(f"[CAMERA] SUCCESS: Camera {i} ready (2 valid frames)")
                         return [i]
                 else:
@@ -234,6 +337,7 @@ def scan_available_cameras(max_index: int = 4) -> List[int]:
                     break
 
         cap.release()
+        time.sleep(CAMERA_RELEASE_DELAY)  # Delay after release to stabilize USB bus
 
         if skip_camera:
             continue
@@ -242,6 +346,7 @@ def scan_available_cameras(max_index: int = 4) -> List[int]:
         print(f"[CAMERA] Index {i}: REJECTED ({valid_frames} valid frames, need 2)")
 
     print("[CAMERA] === Scan complete. No valid cameras found ===")
+    configure_uvcvideo_for_stability()  # Print tips if no camera found
     return []
 
 
@@ -265,8 +370,11 @@ def find_available_camera(max_index: int = 4, preferred_index: Optional[int] = N
     # Try preferred index first if specified
     if preferred_index is not None:
         print(f"[CAMERA] Testing preferred index: {preferred_index}")
+        time.sleep(CAMERA_OPEN_DELAY)
         cap = cv2.VideoCapture(preferred_index, backend)
         if cap.isOpened():
+            # Set MJPG codec to prevent V4L2 timeout issues
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             valid_frames = 0
             for i in range(3):  # Quick 3-frame test
@@ -274,6 +382,7 @@ def find_available_camera(max_index: int = 4, preferred_index: Optional[int] = N
                 if ret and frame is not None and validate_camera_quality(frame, verbose=(i == 0)):
                     valid_frames += 1
             cap.release()
+            time.sleep(CAMERA_RELEASE_DELAY)
             if valid_frames >= 2:
                 print(f"[CAMERA] SUCCESS: Using preferred camera index {preferred_index}")
                 return preferred_index
@@ -282,6 +391,7 @@ def find_available_camera(max_index: int = 4, preferred_index: Optional[int] = N
         else:
             print(f"[CAMERA] Preferred index {preferred_index} failed to open")
             cap.release()
+            time.sleep(CAMERA_RELEASE_DELAY)
 
     # Scan for first available camera
     print("[CAMERA] Scanning for first available camera...")
@@ -339,6 +449,9 @@ class ImageCapture:
         if not self.cap.isOpened():
             print(f"❌ Failed to open camera {self.camera_index}")
             return False
+
+        # Set MJPG codec to prevent V4L2 timeout issues on Linux
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
 
         # Minimize buffer to reduce latency
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -423,10 +536,12 @@ class ImageCapture:
         return self.width, self.height
     
     def release(self):
-        """Release camera resources."""
+        """Release camera resources with delay to prevent USB issues."""
         if self.cap is not None:
             self.cap.release()
             self.cap = None
+            # Delay after release to stabilize USB bus
+            time.sleep(CAMERA_RELEASE_DELAY)
         self.is_open = False
         print("✅ Camera released")
     
