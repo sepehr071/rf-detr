@@ -186,18 +186,17 @@ class ServiceControlGUI:
         self.root.after(5000, self.auto_refresh)
 
     def run_setup(self):
-        """Run setup.sh script."""
-        self.log("Running setup.sh...")
-        setup_script = os.path.join(SCRIPT_DIR, "scripts", "setup.sh")
+        """Run setup.sh then install-service.sh."""
+        self.log("Running setup + install service...")
 
         def run():
-            # Open terminal to run setup (needs user interaction)
+            # Open terminal to run setup.sh then install-service.sh
             subprocess.Popen(
                 ["gnome-terminal", "--", "bash", "-c",
-                 f"cd '{SCRIPT_DIR}' && ./scripts/setup.sh; read -p 'Press Enter to close...'"],
+                 f"cd '{SCRIPT_DIR}' && ./scripts/setup.sh && ./scripts/install-service.sh; echo ''; read -p 'Press Enter to close...'"],
                 cwd=SCRIPT_DIR
             )
-            self.root.after(0, lambda: self.log("Setup started in new terminal"))
+            self.root.after(0, lambda: self.log("Setup + Install started in new terminal"))
 
         thread = threading.Thread(target=run, daemon=True)
         thread.start()
