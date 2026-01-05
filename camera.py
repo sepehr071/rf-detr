@@ -197,22 +197,24 @@ class ImageCapture:
     def open(self) -> bool:
         """
         Open camera connection.
-        
+
         Returns:
             True if camera opened successfully, False otherwise
         """
-        self.cap = cv2.VideoCapture(self.camera_index)
-        
+        # Use platform-specific backend (V4L2 for Linux, DSHOW for Windows)
+        backend = get_camera_backend()
+        self.cap = cv2.VideoCapture(self.camera_index, backend)
+
         if not self.cap.isOpened():
             print(f"❌ Failed to open camera {self.camera_index}")
             return False
-        
+
+        # Minimize buffer to reduce latency
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
         # Configure resolution
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-
-        # Minimize buffer to reduce latency (hint to driver, may not work on all systems)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         
         # Verify actual resolution
         actual_w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
