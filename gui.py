@@ -18,7 +18,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 class ServiceControlGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("RF-DETR Service Control")
+        self.root.title("AyandAi Edge Service Control")
         self.root.geometry("500x450")
         self.root.resizable(True, True)
 
@@ -33,7 +33,7 @@ class ServiceControlGUI:
         # Title
         title_label = ttk.Label(
             self.root,
-            text="RF-DETR Service Control",
+            text="AyandAi Edge Service Control",
             font=("Arial", 16, "bold")
         )
         title_label.grid(row=0, column=0, pady=10, sticky="ew")
