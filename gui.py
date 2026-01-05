@@ -18,7 +18,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 class ServiceControlGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("AyandAi Edge Service Control")
+        self.root.title("AyandAI Edge Service Control")
         self.root.geometry("500x450")
         self.root.resizable(True, True)
 
