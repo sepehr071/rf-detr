@@ -49,6 +49,15 @@ RestartSec=5
 StandardOutput=append:${PROJECT_DIR}/logs/service.log
 StandardError=append:${PROJECT_DIR}/logs/service-error.log
 
+# CPU Performance Settings
+Nice=-5
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=50
+
+# Use all available CPU cores
+Environment="OMP_NUM_THREADS=0"
+Environment="MKL_NUM_THREADS=0"
+
 [Install]
 WantedBy=multi-user.target
 EOF
