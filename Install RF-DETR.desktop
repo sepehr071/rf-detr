@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Name=Install RF-DETR Service
+Comment=Setup virtual environment and install RF-DETR bottle detection service
+Exec=bash -c 'DESKTOP_PATH="$(readlink -f "%k")"; PROJECT_DIR="$(dirname "$DESKTOP_PATH")"; gnome-terminal -- bash -c "cd \"$PROJECT_DIR\" && ./scripts/install-all.sh; echo \"\"; read -p \"Press Enter to close...\""'
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+Categories=Utility;
