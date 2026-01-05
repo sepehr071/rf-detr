@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import platform
 import time
+import glob
 from typing import Optional, Tuple, List
 
 from config import CAMERA_WIDTH, CAMERA_HEIGHT
@@ -21,17 +22,23 @@ def get_camera_backend() -> int:
         OpenCV backend constant for current platform
     """
     system = platform.system().lower()
+    print(f"[CAMERA] Detected platform: {system}")
+
     if system == "windows":
+        print("[CAMERA] Using DSHOW backend (Windows)")
         return cv2.CAP_DSHOW
     elif system == "linux":
+        print("[CAMERA] Using V4L2 backend (Linux)")
         return cv2.CAP_V4L2
     elif system == "darwin":
+        print("[CAMERA] Using AVFoundation backend (macOS)")
         return cv2.CAP_AVFOUNDATION
     else:
+        print("[CAMERA] Using auto-detect backend")
         return -1  # Auto-detect
 
 
-def validate_camera_quality(frame: np.ndarray) -> bool:
+def validate_camera_quality(frame: np.ndarray, verbose: bool = False) -> bool:
     """
     Validate camera frame quality to filter virtual/broken cameras.
 
@@ -42,43 +49,113 @@ def validate_camera_quality(frame: np.ndarray) -> bool:
 
     Args:
         frame: BGR frame from camera
+        verbose: Print detailed validation info
 
     Returns:
         True if frame passes quality checks
     """
     if frame is None:
+        if verbose:
+            print("[VALIDATE] Frame is None")
         return False
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     # Check brightness (reject too dark or too bright)
     brightness = np.mean(gray)
+    if verbose:
+        print(f"[VALIDATE] Brightness: {brightness:.1f} (valid: 5-250)")
     if brightness < 5 or brightness > 250:
+        if verbose:
+            print("[VALIDATE] FAILED: Brightness out of range")
         return False
 
     # Check variance (reject uniform/blank frames)
     variance = np.var(gray)
+    if verbose:
+        print(f"[VALIDATE] Variance: {variance:.1f} (valid: >= 100)")
     if variance < 100:
+        if verbose:
+            print("[VALIDATE] FAILED: Variance too low (uniform frame)")
         return False
 
     # Check edge density (reject frames without visual content)
     edges = cv2.Canny(gray, 50, 150)
     edge_density = np.sum(edges > 0) / (edges.shape[0] * edges.shape[1])
+    if verbose:
+        print(f"[VALIDATE] Edge density: {edge_density:.4f} (valid: >= 0.01)")
     if edge_density < 0.01:
+        if verbose:
+            print("[VALIDATE] FAILED: Edge density too low (no content)")
         return False
 
+    if verbose:
+        print("[VALIDATE] PASSED: Frame quality OK")
     return True
+
+
+def enumerate_cameras_package() -> List[int]:
+    """
+    Try to enumerate cameras using cv2-enumerate-cameras package.
+
+    Returns:
+        List of camera indices, or empty list if package not available
+    """
+    try:
+        from cv2_enumerate_cameras import enumerate_cameras
+        print("[CAMERA] Using cv2-enumerate-cameras package...")
+
+        cameras = []
+        for cam_info in enumerate_cameras(cv2.CAP_V4L2 if platform.system().lower() == "linux" else cv2.CAP_ANY):
+            print(f"[CAMERA] Found: index={cam_info.index}, name={cam_info.name}, path={getattr(cam_info, 'path', 'N/A')}")
+            cameras.append(cam_info.index)
+
+        return cameras
+    except ImportError:
+        print("[CAMERA] cv2-enumerate-cameras not installed, using fallback method")
+        return []
+    except Exception as e:
+        print(f"[CAMERA] cv2-enumerate-cameras error: {e}, using fallback method")
+        return []
+
+
+def scan_dev_video_devices() -> List[int]:
+    """
+    Scan /dev/video* devices on Linux.
+
+    Returns:
+        List of video device indices
+    """
+    if platform.system().lower() != "linux":
+        return []
+
+    print("[CAMERA] Scanning /dev/video* devices...")
+    devices = sorted(glob.glob('/dev/video*'))
+    indices = []
+
+    for dev in devices:
+        try:
+            # Extract index from /dev/videoX
+            idx = int(dev.replace('/dev/video', ''))
+            indices.append(idx)
+            print(f"[CAMERA] Found device: {dev} (index {idx})")
+        except ValueError:
+            continue
+
+    return indices
 
 
 def scan_available_cameras(max_index: int = 4) -> List[int]:
     """
     Scan for available real cameras with quality validation.
 
-    Tests each camera index and validates with multiple frames
-    to filter out virtual cameras and broken devices.
+    Tries multiple methods:
+    1. cv2-enumerate-cameras package (if installed)
+    2. /dev/video* scanning (Linux only)
+    3. Brute-force index scanning (fallback)
 
     Args:
-        max_index: Maximum camera index to check
+        max_index: Maximum camera index to check (for fallback)
 
     Returns:
         List of working camera indices
@@ -86,28 +163,61 @@ def scan_available_cameras(max_index: int = 4) -> List[int]:
     backend = get_camera_backend()
     available_cameras = []
 
-    print("[CAMERA] Scanning for available cameras...")
+    print("[CAMERA] === Starting camera scan ===")
 
-    for i in range(max_index + 1):
+    # Method 1: Try cv2-enumerate-cameras package
+    enumerated = enumerate_cameras_package()
+
+    # Method 2: Try /dev/video* scanning on Linux
+    if not enumerated:
+        enumerated = scan_dev_video_devices()
+
+    # Method 3: Fallback to brute-force index scanning
+    if not enumerated:
+        print(f"[CAMERA] Using brute-force scan (indices 0-{max_index})...")
+        enumerated = list(range(max_index + 1))
+
+    print(f"[CAMERA] Candidate indices to test: {enumerated}")
+
+    # Test each candidate camera
+    for i in enumerated:
+        print(f"[CAMERA] Testing camera index {i}...")
+
         cap = cv2.VideoCapture(i, backend)
-        if cap.isOpened():
-            valid_frames = 0
-            # Test 5 frames to ensure camera is real
-            for _ in range(5):
-                ret, frame = cap.read()
-                if ret and frame is not None and validate_camera_quality(frame):
-                    valid_frames += 1
-                time.sleep(0.1)
+        if not cap.isOpened():
+            print(f"[CAMERA] Index {i}: Failed to open")
+            cap.release()
+            time.sleep(0.1)
+            continue
 
-            if valid_frames >= 3:
-                available_cameras.append(i)
-                print(f"[CAMERA] Found real camera at index {i}")
+        print(f"[CAMERA] Index {i}: Opened successfully, testing frames...")
+
+        valid_frames = 0
+        # Test 5 frames to ensure camera is real
+        for frame_num in range(5):
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                is_valid = validate_camera_quality(frame, verbose=(frame_num == 0))
+                if is_valid:
+                    valid_frames += 1
+                    print(f"[CAMERA] Index {i}: Frame {frame_num + 1}/5 valid")
+                else:
+                    print(f"[CAMERA] Index {i}: Frame {frame_num + 1}/5 invalid")
             else:
-                print(f"[CAMERA] Rejected virtual/broken camera at index {i}")
+                print(f"[CAMERA] Index {i}: Frame {frame_num + 1}/5 capture failed")
+            time.sleep(0.1)
 
         cap.release()
+
+        if valid_frames >= 3:
+            available_cameras.append(i)
+            print(f"[CAMERA] Index {i}: ACCEPTED ({valid_frames}/5 valid frames)")
+        else:
+            print(f"[CAMERA] Index {i}: REJECTED ({valid_frames}/5 valid frames)")
+
         time.sleep(0.1)
 
+    print(f"[CAMERA] === Scan complete. Found {len(available_cameras)} real camera(s): {available_cameras} ===")
     return available_cameras
 
 
@@ -125,44 +235,56 @@ def find_available_camera(max_index: int = 4, preferred_index: Optional[int] = N
     Returns:
         Index of first working camera, or 0 if none found
     """
+    print("[CAMERA] === Finding available camera ===")
+    if preferred_index is not None:
+        print(f"[CAMERA] Preferred index: {preferred_index}")
+
     backend = get_camera_backend()
     available_cameras = scan_available_cameras(max_index)
 
     if not available_cameras:
-        print("[CAMERA] No real cameras found! Defaulting to index 0")
+        print("[CAMERA] ERROR: No real cameras found!")
+        print("[CAMERA] Defaulting to index 0 (may not work)")
         return 0
+
+    print(f"[CAMERA] Available cameras after scan: {available_cameras}")
 
     # Try preferred index first if specified and available
     if preferred_index is not None and preferred_index in available_cameras:
-        print(f"[CAMERA] Trying preferred camera index {preferred_index}")
+        print(f"[CAMERA] Preferred index {preferred_index} is available, testing...")
         cap = cv2.VideoCapture(preferred_index, backend)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         ret, frame = cap.read()
-        if ret and frame is not None and validate_camera_quality(frame):
-            print(f"[CAMERA] Connected to preferred camera index {preferred_index}")
+        if ret and frame is not None and validate_camera_quality(frame, verbose=True):
+            print(f"[CAMERA] SUCCESS: Using preferred camera index {preferred_index}")
             cap.release()
             return preferred_index
+        else:
+            print(f"[CAMERA] Preferred index {preferred_index} failed validation")
         cap.release()
 
     # Try other available cameras
+    print("[CAMERA] Trying other available cameras...")
     for cam_index in available_cameras:
         if cam_index != preferred_index:
-            print(f"[CAMERA] Trying camera index {cam_index}")
+            print(f"[CAMERA] Final test for camera index {cam_index}...")
             cap = cv2.VideoCapture(cam_index, backend)
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             ret, frame = cap.read()
-            if ret and frame is not None and validate_camera_quality(frame):
-                print(f"[CAMERA] Connected to real camera index {cam_index}")
+            if ret and frame is not None and validate_camera_quality(frame, verbose=True):
+                print(f"[CAMERA] SUCCESS: Using camera index {cam_index}")
                 cap.release()
                 return cam_index
+            else:
+                print(f"[CAMERA] Camera index {cam_index} failed final validation")
             cap.release()
 
     # Fallback to first available if all validation fails
     if available_cameras:
-        print(f"[CAMERA] Using first available camera index {available_cameras[0]}")
+        print(f"[CAMERA] WARNING: All cameras failed validation, using first available: {available_cameras[0]}")
         return available_cameras[0]
 
-    print("[CAMERA] No camera found, defaulting to index 0")
+    print("[CAMERA] ERROR: No camera found, defaulting to index 0")
     return 0
 
 
