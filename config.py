@@ -16,7 +16,7 @@ CAMERA_HEIGHT = 960
 # MODEL SETTINGS
 # ============================================================================
 
-DEFAULT_CHECKPOINT = "checkpoint_best_regular.pth"
+DEFAULT_CHECKPOINT = "models/model_2jan_best_ema.pth"
 DEFAULT_CONFIDENCE = 0.4
 
 # ============================================================================
@@ -39,7 +39,7 @@ NMS_IOU_THRESHOLD = 0.2  # IoU threshold for SAHI tile merging (LOWER = more agg
 # MERGE SETTINGS (for hybrid mode: full + SAHI)
 # ============================================================================
 
-MERGE_IOU_THRESHOLD = 0.2         # IoU threshold for merging (LOWER = fewer duplicates)
+MERGE_IOU_THRESHOLD = 0.45         # IoU threshold for merging (LOWER = fewer duplicates)
 MERGE_CLASS_AGNOSTIC = True       # Ignore class labels when merging (recommended)
 MERGE_STRATEGY = "nms"            # "nms" or "nmm" (non-max merging)
 
@@ -195,7 +195,7 @@ KEYPOINT_MODEL_PATH = "checkpoints/best.pt"
 KEYPOINT_OPENVINO_PATH = "checkpoints/best_openvino_model"  # Auto-generated OpenVINO model
 KEYPOINT_CROP_MARGIN = 20              # Pixels of margin around bbox when cropping
 KEYPOINT_TEMP_DIR = "temp_crops"       # Directory for temporary crop files
-KEYPOINT_BIG_OBJECT_CLASSES = {1, 4}   # DS_b_330_4pa, HN_b_330_6pa
+KEYPOINT_BIG_OBJECT_CLASSES = {}   # DS_b_330_4pa, HN_b_330_6pa
 KEYPOINT_MIN_CONFIDENCE = 0.5          # Minimum keypoint confidence
 
 # ============================================================================
